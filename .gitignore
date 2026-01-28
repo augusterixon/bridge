@@ -1,0 +1,48 @@
+# ===== OS junk =====
+.DS_Store
+Thumbs.db
+
+# ===== IntelliJ / Android Studio =====
+.idea/
+*.iml
+
+# Local configuration
+local.properties
+
+# ===== Gradle =====
+.gradle/
+build/
+*/build/
+
+# ===== APK/AAB outputs =====
+*.apk
+*.aab
+
+# ===== Logs =====
+*.log
+
+# ===== Kotlin/Java compile output =====
+out/
+
+# ===== Android Studio generated =====
+captures/
+.externalNativeBuild/
+.cxx/
+
+# ===== Secrets (never commit) =====
+*.keystore
+*.jks
+google-services.json
+
+# ===== Temporary files =====
+*.swp
+*.tmp
+*.bak
+
+# ===== Node (if ever used later) =====
+node_modules/
+
+# ===== Python (if ever used later) =====
+__pycache__/
+*.pyc
+.env
