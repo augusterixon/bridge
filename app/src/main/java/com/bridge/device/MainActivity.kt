@@ -10,6 +10,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -24,7 +28,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             BridgeTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    BridgeHome()
+                    BridgeApp()
                 }
             }
         }
@@ -43,8 +47,37 @@ private val menuItems = listOf(
     "Exit Bridge"
 )
 
+enum class BridgeScreen {
+    Home,
+    Library,
+    Phone,
+    Messages,
+    Maps,
+    QR,
+    Hotspot,
+    Auth,
+    Settings,
+    Exit
+}
+
 @Composable
-fun BridgeHome() {
+fun BridgeApp() {
+    var currentScreen by remember { mutableStateOf(BridgeScreen.Home) }
+
+    when (currentScreen) {
+        BridgeScreen.Home -> BridgeHome(
+            onSelect = { screen -> currentScreen = screen }
+        )
+
+        else -> PlaceholderScreen(
+            title = currentScreen.name,
+            onBack = { currentScreen = BridgeScreen.Home }
+        )
+    }
+}
+
+@Composable
+fun BridgeHome(onSelect: (BridgeScreen) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -65,7 +98,19 @@ fun BridgeHome() {
                 index = index + 1,
                 label = label,
                 onClick = {
-                    // TODO: Wire each item to a screen
+                    val screen = when (label) {
+                        "Library" -> BridgeScreen.Library
+                        "Phone" -> BridgeScreen.Phone
+                        "Messages" -> BridgeScreen.Messages
+                        "Maps" -> BridgeScreen.Maps
+                        "QR" -> BridgeScreen.QR
+                        "Hotspot" -> BridgeScreen.Hotspot
+                        "Auth" -> BridgeScreen.Auth
+                        "Settings" -> BridgeScreen.Settings
+                        "Exit Bridge" -> BridgeScreen.Exit
+                        else -> BridgeScreen.Home
+                    }
+                    onSelect(screen)
                 }
             )
             Spacer(modifier = Modifier.height(14.dp))
@@ -90,6 +135,38 @@ private fun MenuRow(index: Int, label: String, onClick: () -> Unit) {
         Text(
             text = label,
             style = MaterialTheme.typography.titleLarge
+        )
+    }
+}
+
+@Composable
+fun PlaceholderScreen(title: String, onBack: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        Text(
+            text = "Coming soon",
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.clickable { onBack() }
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = "Tap to return",
+            style = MaterialTheme.typography.bodyMedium
         )
     }
 }
