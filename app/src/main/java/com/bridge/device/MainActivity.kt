@@ -1,6 +1,11 @@
 package com.bridge.device
 
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -28,7 +33,18 @@ class MainActivity : ComponentActivity() {
         setContent {
             BridgeTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    BridgeApp()
+                    BridgeApp(
+                        onOpenMaps = { openMapsNavigation(activity = this) },
+                        onOpenConnectivity = { startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS)) },
+                        onOpenBluetooth = { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) },
+                        onOpenPhone = { openDialer(this) },
+                        onOpenMessages = { openSms(this) },
+                        onTryLaunchPackage = { pkg -> tryLaunchPackage(this, pkg) },
+                        prefsGetEnabled = { key -> getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(key, false) },
+                        prefsSetEnabled = { key, value ->
+                            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putBoolean(key, value).apply()
+                        }
+                    )
                 }
             }
         }
@@ -41,10 +57,51 @@ private val menuItems = listOf(
     "Messages",
     "Maps",
     "QR",
-    "Hotspot",
     "Auth",
-    "Settings",
+    "Connectivity",
+    "Bluetooth",
     "Exit Bridge"
+)
+
+/**
+ * Auth tools we support (curated, utilitarian).
+ * No password managers, no browser-dependent stuff.
+ *
+ * Package names are best-effort defaults; if one fails on your real phone,
+ * we’ll adjust after checking the installed package name.
+ */
+private const val PKG_BANKID = "com.bankid.bus"
+private const val PKG_MS_AUTH = "com.azure.authenticator"
+private const val PKG_GOOGLE_AUTH = "com.google.android.apps.authenticator2"
+private const val PKG_OKTA_VERIFY = "com.okta.android.auth"
+private const val PKG_DUO = "com.duosecurity.duomobile"
+private const val PKG_AUTHY = "com.authy.authy"
+
+// prefs
+private const val PREFS_NAME = "bridge_prefs"
+private const val KEY_ENABLE_BANKID = "enable_bankid"
+private const val KEY_ENABLE_MS_AUTH = "enable_ms_auth"
+private const val KEY_ENABLE_GOOGLE_AUTH = "enable_google_auth"
+private const val KEY_ENABLE_OKTA = "enable_okta"
+private const val KEY_ENABLE_DUO = "enable_duo"
+private const val KEY_ENABLE_AUTHY = "enable_authy"
+
+data class AuthTool(
+    val title: String,
+    val pkg: String,
+    val key: String
+)
+
+private val authPrimaryTools = listOf(
+    AuthTool("BankID", PKG_BANKID, KEY_ENABLE_BANKID),
+    AuthTool("Microsoft Authenticator", PKG_MS_AUTH, KEY_ENABLE_MS_AUTH)
+)
+
+private val authMoreTools = listOf(
+    AuthTool("Google Authenticator", PKG_GOOGLE_AUTH, KEY_ENABLE_GOOGLE_AUTH),
+    AuthTool("Okta Verify", PKG_OKTA_VERIFY, KEY_ENABLE_OKTA),
+    AuthTool("Duo Mobile", PKG_DUO, KEY_ENABLE_DUO),
+    AuthTool("Authy", PKG_AUTHY, KEY_ENABLE_AUTHY)
 )
 
 enum class BridgeScreen {
@@ -54,19 +111,137 @@ enum class BridgeScreen {
     Messages,
     Maps,
     QR,
-    Hotspot,
     Auth,
-    Settings,
+    AuthFirstRun,
+    AuthMore,
+    AuthConfig,
+    Bluetooth,
+    Connectivity,
     Exit
 }
 
+private fun tryLaunchPackage(activity: ComponentActivity, pkg: String): Boolean {
+    val intent = activity.packageManager.getLaunchIntentForPackage(pkg) ?: return false
+    activity.startActivity(intent)
+    return true
+}
+
+private fun openDialer(activity: ComponentActivity) {
+    val intent = Intent(Intent.ACTION_DIAL)
+    activity.startActivity(intent)
+}
+
+private fun openSms(activity: ComponentActivity) {
+    val intent = Intent(Intent.ACTION_MAIN).apply {
+        addCategory(Intent.CATEGORY_APP_MESSAGING)
+    }
+    activity.startActivity(intent)
+}
+
+/**
+ * Kept (and fixed) even though Auth is now a Bridge screen.
+ * If you ever want a direct quick-launch flow, this is now safe & sane.
+ */
+private fun openAuthQuick(activity: ComponentActivity): Boolean {
+    // Prefer BankID then Microsoft Auth. No random fallbacks.
+    return tryLaunchPackage(activity, PKG_BANKID) || tryLaunchPackage(activity, PKG_MS_AUTH)
+}
+
+private fun openMapsNavigation(activity: ComponentActivity) {
+    val uri = Uri.parse("google.navigation:q=Central+Station")
+    val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+        setPackage("com.google.android.apps.maps")
+    }
+
+    if (intent.resolveActivity(activity.packageManager) != null) {
+        activity.startActivity(intent)
+    } else {
+        activity.startActivity(Intent(Intent.ACTION_VIEW, uri))
+    }
+}
+
 @Composable
-fun BridgeApp() {
+fun BridgeApp(
+    onOpenMaps: () -> Unit,
+    onOpenConnectivity: () -> Unit,
+    onOpenBluetooth: () -> Unit,
+    onOpenPhone: () -> Unit,
+    onOpenMessages: () -> Unit,
+    onTryLaunchPackage: (String) -> Boolean,
+    prefsGetEnabled: (String) -> Boolean,
+    prefsSetEnabled: (String, Boolean) -> Unit
+) {
     var currentScreen by remember { mutableStateOf(BridgeScreen.Home) }
+    var authStatus by remember { mutableStateOf<String?>(null) }
+
+    fun anyAuthEnabled(): Boolean {
+        val allKeys = authPrimaryTools.map { it.key } + authMoreTools.map { it.key }
+        return allKeys.any { prefsGetEnabled(it) }
+    }
 
     when (currentScreen) {
         BridgeScreen.Home -> BridgeHome(
-            onSelect = { screen -> currentScreen = screen }
+            onSelect = { screen -> currentScreen = screen },
+            onOpenMaps = onOpenMaps,
+            onOpenConnectivity = onOpenConnectivity,
+            onOpenBluetooth = onOpenBluetooth,
+            onOpenPhone = onOpenPhone,
+            onOpenMessages = onOpenMessages
+        )
+        BridgeScreen.AuthFirstRun -> AuthFirstRunScreen(
+            onEnable = { currentScreen = BridgeScreen.AuthConfig },
+            onBack = { currentScreen = BridgeScreen.Home }
+        )
+
+        BridgeScreen.Auth -> {
+            if (!anyAuthEnabled()) {
+                currentScreen = BridgeScreen.AuthFirstRun
+            } else {
+                AuthMenuScreen(
+                    statusText = authStatus,
+                    enabledPrimary = authPrimaryTools.filter { prefsGetEnabled(it.key) },
+                    onBack = {
+                        authStatus = null
+                        currentScreen = BridgeScreen.Home
+                    },
+                    onOpenTool = { tool ->
+                        val ok = onTryLaunchPackage(tool.pkg)
+                        authStatus = if (ok) null else "${tool.title} not installed"
+                    },
+                    onMore = {
+                        authStatus = null
+                        currentScreen = BridgeScreen.AuthMore
+                    },
+                    onManage = {
+                        authStatus = null
+                        currentScreen = BridgeScreen.AuthConfig
+                    }
+                )
+            }
+        }
+
+        BridgeScreen.AuthMore -> AuthMoreScreen(
+            statusText = authStatus,
+            enabledMore = authMoreTools.filter { prefsGetEnabled(it.key) },
+            onBack = {
+                authStatus = null
+                currentScreen = BridgeScreen.Auth
+            },
+            onOpenTool = { tool ->
+                val ok = onTryLaunchPackage(tool.pkg)
+                authStatus = if (ok) null else "${tool.title} not installed"
+            },
+            onManage = {
+                authStatus = null
+                currentScreen = BridgeScreen.AuthConfig
+            }
+        )
+
+        BridgeScreen.AuthConfig -> AuthConfigScreen(
+            onBack = { currentScreen = BridgeScreen.Auth },
+            prefsGetEnabled = prefsGetEnabled,
+            prefsSetEnabled = prefsSetEnabled,
+            note = "Toggle which auth tools appear inside Bridge."
         )
 
         else -> PlaceholderScreen(
@@ -77,7 +252,14 @@ fun BridgeApp() {
 }
 
 @Composable
-fun BridgeHome(onSelect: (BridgeScreen) -> Unit) {
+fun BridgeHome(
+    onSelect: (BridgeScreen) -> Unit,
+    onOpenMaps: () -> Unit,
+    onOpenConnectivity: () -> Unit,
+    onOpenBluetooth: () -> Unit,
+    onOpenPhone: () -> Unit,
+    onOpenMessages: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -98,23 +280,230 @@ fun BridgeHome(onSelect: (BridgeScreen) -> Unit) {
                 index = index + 1,
                 label = label,
                 onClick = {
-                    val screen = when (label) {
-                        "Library" -> BridgeScreen.Library
-                        "Phone" -> BridgeScreen.Phone
-                        "Messages" -> BridgeScreen.Messages
-                        "Maps" -> BridgeScreen.Maps
-                        "QR" -> BridgeScreen.QR
-                        "Hotspot" -> BridgeScreen.Hotspot
-                        "Auth" -> BridgeScreen.Auth
-                        "Settings" -> BridgeScreen.Settings
-                        "Exit Bridge" -> BridgeScreen.Exit
-                        else -> BridgeScreen.Home
+                    when (label) {
+                        "Maps" -> onOpenMaps()
+                        "Connectivity" -> onOpenConnectivity()
+                        "Bluetooth" -> onOpenBluetooth()
+                        "Phone" -> onOpenPhone()
+                        "Messages" -> onOpenMessages()
+                        "Auth" -> onSelect(BridgeScreen.Auth)
+                        else -> {
+                            val screen = when (label) {
+                                "Library" -> BridgeScreen.Library
+                                "QR" -> BridgeScreen.QR
+                                "Exit Bridge" -> BridgeScreen.Exit
+                                else -> BridgeScreen.Home
+                            }
+                            onSelect(screen)
+                        }
                     }
-                    onSelect(screen)
                 }
             )
             Spacer(modifier = Modifier.height(14.dp))
         }
+    }
+}
+
+@Composable
+fun AuthFirstRunScreen(
+    onEnable: () -> Unit,
+    onBack: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 32.dp),
+        verticalArrangement = Arrangement.Top,
+        horizontalAlignment = Alignment.Start
+    ) {
+        Text(
+            text = "Auth",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        MenuRow(index = 1, label = "Enable auth apps", onClick = onEnable)
+        Spacer(modifier = Modifier.height(14.dp))
+        MenuRow(index = 2, label = "Back", onClick = onBack)
+    }
+}
+
+@Composable
+fun AuthMenuScreen(
+    statusText: String?,
+    enabledPrimary: List<AuthTool>,
+    onBack: () -> Unit,
+    onOpenTool: (AuthTool) -> Unit,
+    onMore: () -> Unit,
+    onManage: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 32.dp),
+        verticalArrangement = Arrangement.Top,
+        horizontalAlignment = Alignment.Start
+    ) {
+        Text(
+            text = "Auth",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        var rowIndex = 1
+        enabledPrimary.forEach { tool ->
+            MenuRow(index = rowIndex++, label = tool.title, onClick = { onOpenTool(tool) })
+            Spacer(modifier = Modifier.height(14.dp))
+        }
+
+        MenuRow(index = rowIndex++, label = "More auth tools…", onClick = onMore)
+        Spacer(modifier = Modifier.height(14.dp))
+
+        MenuRow(index = rowIndex++, label = "Manage auth apps", onClick = onManage)
+        Spacer(modifier = Modifier.height(14.dp))
+
+        MenuRow(index = rowIndex, label = "Back", onClick = onBack)
+
+        if (!statusText.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(text = statusText, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+fun AuthMoreScreen(
+    statusText: String?,
+    enabledMore: List<AuthTool>,
+    onBack: () -> Unit,
+    onOpenTool: (AuthTool) -> Unit,
+    onManage: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 32.dp),
+        verticalArrangement = Arrangement.Top,
+        horizontalAlignment = Alignment.Start
+    ) {
+        Text(
+            text = "More Auth",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        var rowIndex = 1
+        if (enabledMore.isEmpty()) {
+            Text(
+                text = "No additional auth tools enabled.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.height(18.dp))
+        } else {
+            enabledMore.forEach { tool ->
+                MenuRow(index = rowIndex++, label = tool.title, onClick = { onOpenTool(tool) })
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+        }
+
+        MenuRow(index = rowIndex++, label = "Manage auth apps", onClick = onManage)
+        Spacer(modifier = Modifier.height(14.dp))
+
+        MenuRow(index = rowIndex, label = "Back", onClick = onBack)
+
+        if (!statusText.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(text = statusText, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+private fun AuthToggleRow(
+    index: Int,
+    label: String,
+    checked: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onToggle() }
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = index.toString().padStart(2, '0'),
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        Spacer(modifier = Modifier.width(14.dp))
+
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.weight(1f)
+        )
+
+        Checkbox(
+            checked = checked,
+            onCheckedChange = { onToggle() }
+        )
+    }
+}
+
+@Composable
+fun AuthConfigScreen(
+    onBack: () -> Unit,
+    prefsGetEnabled: (String) -> Boolean,
+    prefsSetEnabled: (String, Boolean) -> Unit,
+    note: String
+) {
+    val allTools = authPrimaryTools + authMoreTools
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 32.dp),
+        verticalArrangement = Arrangement.Top,
+        horizontalAlignment = Alignment.Start
+    ) {
+        Text(
+            text = "Enable Auth Apps",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(text = note, style = MaterialTheme.typography.bodyMedium)
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        allTools.forEachIndexed { index, tool ->
+            // Keep state in Compose so UI updates instantly
+            var enabled by remember(tool.key) { mutableStateOf(prefsGetEnabled(tool.key)) }
+
+            AuthToggleRow(
+                index = index + 1,
+                label = tool.title,
+                checked = enabled,
+                onToggle = {
+                    enabled = !enabled
+                    prefsSetEnabled(tool.key, enabled)
+                }
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+        MenuRow(index = allTools.size + 1, label = "Back", onClick = onBack)
     }
 }
 
