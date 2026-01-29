@@ -1,7 +1,5 @@
 package com.bridge.device
 
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -11,14 +9,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -40,9 +35,13 @@ class MainActivity : ComponentActivity() {
                         onOpenPhone = { openDialer(this) },
                         onOpenMessages = { openSms(this) },
                         onTryLaunchPackage = { pkg -> tryLaunchPackage(this, pkg) },
-                        prefsGetEnabled = { key -> getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(key, false) },
+                        prefsGetEnabled = { key ->
+                            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(key, false)
+                        },
                         prefsSetEnabled = { key, value ->
-                            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putBoolean(key, value).apply()
+                            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                                .putBoolean(key, value)
+                                .apply()
                         }
                     )
                 }
@@ -65,10 +64,7 @@ private val menuItems = listOf(
 
 /**
  * Auth tools we support (curated, utilitarian).
- * No password managers, no browser-dependent stuff.
- *
- * Package names are best-effort defaults; if one fails on your real phone,
- * we’ll adjust after checking the installed package name.
+ * Package names are best-effort defaults; adjust if needed after checking installed packages.
  */
 private const val PKG_BANKID = "com.bankid.bus"
 private const val PKG_MS_AUTH = "com.azure.authenticator"
@@ -92,12 +88,9 @@ data class AuthTool(
     val key: String
 )
 
-private val authPrimaryTools = listOf(
+private val authTools = listOf(
     AuthTool("BankID", PKG_BANKID, KEY_ENABLE_BANKID),
-    AuthTool("Microsoft Authenticator", PKG_MS_AUTH, KEY_ENABLE_MS_AUTH)
-)
-
-private val authMoreTools = listOf(
+    AuthTool("Microsoft Authenticator", PKG_MS_AUTH, KEY_ENABLE_MS_AUTH),
     AuthTool("Google Authenticator", PKG_GOOGLE_AUTH, KEY_ENABLE_GOOGLE_AUTH),
     AuthTool("Okta Verify", PKG_OKTA_VERIFY, KEY_ENABLE_OKTA),
     AuthTool("Duo Mobile", PKG_DUO, KEY_ENABLE_DUO),
@@ -113,7 +106,6 @@ enum class BridgeScreen {
     QR,
     Auth,
     AuthFirstRun,
-    AuthMore,
     AuthConfig,
     Bluetooth,
     Connectivity,
@@ -127,8 +119,7 @@ private fun tryLaunchPackage(activity: ComponentActivity, pkg: String): Boolean 
 }
 
 private fun openDialer(activity: ComponentActivity) {
-    val intent = Intent(Intent.ACTION_DIAL)
-    activity.startActivity(intent)
+    activity.startActivity(Intent(Intent.ACTION_DIAL))
 }
 
 private fun openSms(activity: ComponentActivity) {
@@ -136,15 +127,6 @@ private fun openSms(activity: ComponentActivity) {
         addCategory(Intent.CATEGORY_APP_MESSAGING)
     }
     activity.startActivity(intent)
-}
-
-/**
- * Kept (and fixed) even though Auth is now a Bridge screen.
- * If you ever want a direct quick-launch flow, this is now safe & sane.
- */
-private fun openAuthQuick(activity: ComponentActivity): Boolean {
-    // Prefer BankID then Microsoft Auth. No random fallbacks.
-    return tryLaunchPackage(activity, PKG_BANKID) || tryLaunchPackage(activity, PKG_MS_AUTH)
 }
 
 private fun openMapsNavigation(activity: ComponentActivity) {
@@ -174,10 +156,8 @@ fun BridgeApp(
     var currentScreen by remember { mutableStateOf(BridgeScreen.Home) }
     var authStatus by remember { mutableStateOf<String?>(null) }
 
-    fun anyAuthEnabled(): Boolean {
-        val allKeys = authPrimaryTools.map { it.key } + authMoreTools.map { it.key }
-        return allKeys.any { prefsGetEnabled(it) }
-    }
+    fun anyAuthEnabled(): Boolean =
+        authTools.any { tool -> prefsGetEnabled(tool.key) }
 
     when (currentScreen) {
         BridgeScreen.Home -> BridgeHome(
@@ -188,6 +168,7 @@ fun BridgeApp(
             onOpenPhone = onOpenPhone,
             onOpenMessages = onOpenMessages
         )
+
         BridgeScreen.AuthFirstRun -> AuthFirstRunScreen(
             onEnable = { currentScreen = BridgeScreen.AuthConfig },
             onBack = { currentScreen = BridgeScreen.Home }
@@ -199,7 +180,7 @@ fun BridgeApp(
             } else {
                 AuthMenuScreen(
                     statusText = authStatus,
-                    enabledPrimary = authPrimaryTools.filter { prefsGetEnabled(it.key) },
+                    enabledTools = authTools.filter { tool -> prefsGetEnabled(tool.key) },
                     onBack = {
                         authStatus = null
                         currentScreen = BridgeScreen.Home
@@ -207,10 +188,6 @@ fun BridgeApp(
                     onOpenTool = { tool ->
                         val ok = onTryLaunchPackage(tool.pkg)
                         authStatus = if (ok) null else "${tool.title} not installed"
-                    },
-                    onMore = {
-                        authStatus = null
-                        currentScreen = BridgeScreen.AuthMore
                     },
                     onManage = {
                         authStatus = null
@@ -220,22 +197,6 @@ fun BridgeApp(
             }
         }
 
-        BridgeScreen.AuthMore -> AuthMoreScreen(
-            statusText = authStatus,
-            enabledMore = authMoreTools.filter { prefsGetEnabled(it.key) },
-            onBack = {
-                authStatus = null
-                currentScreen = BridgeScreen.Auth
-            },
-            onOpenTool = { tool ->
-                val ok = onTryLaunchPackage(tool.pkg)
-                authStatus = if (ok) null else "${tool.title} not installed"
-            },
-            onManage = {
-                authStatus = null
-                currentScreen = BridgeScreen.AuthConfig
-            }
-        )
 
         BridgeScreen.AuthConfig -> AuthConfigScreen(
             onBack = { currentScreen = BridgeScreen.Auth },
@@ -323,7 +284,6 @@ fun AuthFirstRunScreen(
         )
 
         Spacer(modifier = Modifier.height(24.dp))
-
         MenuRow(index = 1, label = "Enable auth apps", onClick = onEnable)
         Spacer(modifier = Modifier.height(14.dp))
         MenuRow(index = 2, label = "Back", onClick = onBack)
@@ -333,10 +293,9 @@ fun AuthFirstRunScreen(
 @Composable
 fun AuthMenuScreen(
     statusText: String?,
-    enabledPrimary: List<AuthTool>,
+    enabledTools: List<AuthTool>,
     onBack: () -> Unit,
     onOpenTool: (AuthTool) -> Unit,
-    onMore: () -> Unit,
     onManage: () -> Unit
 ) {
     Column(
@@ -355,17 +314,13 @@ fun AuthMenuScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         var rowIndex = 1
-        enabledPrimary.forEach { tool ->
+        enabledTools.forEach { tool ->
             MenuRow(index = rowIndex++, label = tool.title, onClick = { onOpenTool(tool) })
             Spacer(modifier = Modifier.height(14.dp))
         }
 
-        MenuRow(index = rowIndex++, label = "More auth tools…", onClick = onMore)
-        Spacer(modifier = Modifier.height(14.dp))
-
         MenuRow(index = rowIndex++, label = "Manage auth apps", onClick = onManage)
         Spacer(modifier = Modifier.height(14.dp))
-
         MenuRow(index = rowIndex, label = "Back", onClick = onBack)
 
         if (!statusText.isNullOrBlank()) {
@@ -465,7 +420,14 @@ fun AuthConfigScreen(
     prefsSetEnabled: (String, Boolean) -> Unit,
     note: String
 ) {
-    val allTools = authPrimaryTools + authMoreTools
+    val allTools = authTools
+
+    // ✅ Key fix: drive UI from a single state map, not per-row remember() state.
+    val state = remember {
+        mutableStateMapOf<String, Boolean>().apply {
+            allTools.forEach { put(it.key, prefsGetEnabled(it.key)) }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -486,16 +448,16 @@ fun AuthConfigScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         allTools.forEachIndexed { index, tool ->
-            // Keep state in Compose so UI updates instantly
-            var enabled by remember(tool.key) { mutableStateOf(prefsGetEnabled(tool.key)) }
+            val enabled = state[tool.key] == true
 
             AuthToggleRow(
                 index = index + 1,
                 label = tool.title,
                 checked = enabled,
                 onToggle = {
-                    enabled = !enabled
-                    prefsSetEnabled(tool.key, enabled)
+                    val newValue = !enabled
+                    state[tool.key] = newValue
+                    prefsSetEnabled(tool.key, newValue)
                 }
             )
 
@@ -552,7 +514,6 @@ fun PlaceholderScreen(title: String, onBack: () -> Unit) {
         )
 
         Spacer(modifier = Modifier.height(12.dp))
-
         Text(
             text = "Tap to return",
             style = MaterialTheme.typography.bodyMedium
