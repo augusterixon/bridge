@@ -50,13 +50,18 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val menuItems = listOf(
+/**
+ * Home menu base items (always shown).
+ * Enabled utility tool rows will be injected under "Utility".
+ */
+private val baseMenuItems = listOf(
     "Library",
     "Phone",
     "Messages",
-    "Maps",
+    "Travel",
     "QR",
     "Auth",
+    "Utility",
     "Connectivity",
     "Bluetooth",
     "Exit Bridge"
@@ -64,7 +69,6 @@ private val menuItems = listOf(
 
 /**
  * Auth tools we support (curated, utilitarian).
- * Package names are best-effort defaults; adjust if needed after checking installed packages.
  */
 private const val PKG_BANKID = "com.bankid.bus"
 private const val PKG_MS_AUTH = "com.azure.authenticator"
@@ -73,8 +77,24 @@ private const val PKG_OKTA_VERIFY = "com.okta.android.auth"
 private const val PKG_DUO = "com.duosecurity.duomobile"
 private const val PKG_AUTHY = "com.authy.authy"
 
-// prefs
+/**
+ * Utility apps (opt-in).
+ */
+private const val PKG_WHATSAPP = "com.whatsapp"
+private const val PKG_SPOTIFY = "com.spotify.music"
+private const val PKG_UBER = "com.ubercab"
+
+/**
+ * Travel apps (opt-in). (Maps is NOT an app toggle; it’s a built-in action in Travel.)
+ * Keep these if you want; otherwise you can remove the whole travelTools list.
+ */
+private const val PKG_GRAB = "com.grabtaxi.passenger"
+private const val PKG_BOLT = "ee.mtakso.client"
+
+/** prefs */
 private const val PREFS_NAME = "bridge_prefs"
+
+// auth keys
 private const val KEY_ENABLE_BANKID = "enable_bankid"
 private const val KEY_ENABLE_MS_AUTH = "enable_ms_auth"
 private const val KEY_ENABLE_GOOGLE_AUTH = "enable_google_auth"
@@ -82,33 +102,65 @@ private const val KEY_ENABLE_OKTA = "enable_okta"
 private const val KEY_ENABLE_DUO = "enable_duo"
 private const val KEY_ENABLE_AUTHY = "enable_authy"
 
-data class AuthTool(
+// utility keys
+private const val KEY_ENABLE_WHATSAPP = "enable_whatsapp"
+private const val KEY_ENABLE_SPOTIFY = "enable_spotify"
+private const val KEY_ENABLE_UBER = "enable_uber"
+
+// travel keys
+private const val KEY_ENABLE_GRAB = "enable_grab"
+private const val KEY_ENABLE_BOLT = "enable_bolt"
+
+enum class ToolCategory { Auth, Utility, Travel }
+
+data class Tool(
     val title: String,
     val pkg: String,
-    val key: String
+    val key: String,
+    val category: ToolCategory
 )
 
 private val authTools = listOf(
-    AuthTool("BankID", PKG_BANKID, KEY_ENABLE_BANKID),
-    AuthTool("Microsoft Authenticator", PKG_MS_AUTH, KEY_ENABLE_MS_AUTH),
-    AuthTool("Google Authenticator", PKG_GOOGLE_AUTH, KEY_ENABLE_GOOGLE_AUTH),
-    AuthTool("Okta Verify", PKG_OKTA_VERIFY, KEY_ENABLE_OKTA),
-    AuthTool("Duo Mobile", PKG_DUO, KEY_ENABLE_DUO),
-    AuthTool("Authy", PKG_AUTHY, KEY_ENABLE_AUTHY)
+    Tool("BankID", PKG_BANKID, KEY_ENABLE_BANKID, ToolCategory.Auth),
+    Tool("Microsoft Authenticator", PKG_MS_AUTH, KEY_ENABLE_MS_AUTH, ToolCategory.Auth),
+    Tool("Google Authenticator", PKG_GOOGLE_AUTH, KEY_ENABLE_GOOGLE_AUTH, ToolCategory.Auth),
+    Tool("Okta Verify", PKG_OKTA_VERIFY, KEY_ENABLE_OKTA, ToolCategory.Auth),
+    Tool("Duo Mobile", PKG_DUO, KEY_ENABLE_DUO, ToolCategory.Auth),
+    Tool("Authy", PKG_AUTHY, KEY_ENABLE_AUTHY, ToolCategory.Auth)
+)
+
+private val utilityTools = listOf(
+    Tool("WhatsApp", PKG_WHATSAPP, KEY_ENABLE_WHATSAPP, ToolCategory.Utility),
+    Tool("Spotify", PKG_SPOTIFY, KEY_ENABLE_SPOTIFY, ToolCategory.Utility),
+    Tool("Uber", PKG_UBER, KEY_ENABLE_UBER, ToolCategory.Utility)
+)
+
+private val travelTools = listOf(
+    Tool("Grab", PKG_GRAB, KEY_ENABLE_GRAB, ToolCategory.Travel),
+    Tool("Bolt", PKG_BOLT, KEY_ENABLE_BOLT, ToolCategory.Travel)
 )
 
 enum class BridgeScreen {
     Home,
     Library,
-    Phone,
-    Messages,
-    Maps,
     QR,
+
+    // Auth
     Auth,
     AuthFirstRun,
     AuthConfig,
-    Bluetooth,
+
+    // Utility
+    Utility,
+    UtilityFirstRun,
+    UtilityConfig,
+
+    // Travel
+    Travel,
+    TravelConfig,
+
     Connectivity,
+    Bluetooth,
     Exit
 }
 
@@ -154,55 +206,168 @@ fun BridgeApp(
     prefsSetEnabled: (String, Boolean) -> Unit
 ) {
     var currentScreen by remember { mutableStateOf(BridgeScreen.Home) }
-    var authStatus by remember { mutableStateOf<String?>(null) }
+    var statusText by remember { mutableStateOf<String?>(null) }
 
-    fun anyAuthEnabled(): Boolean =
-        authTools.any { tool -> prefsGetEnabled(tool.key) }
+    fun enabledAuth(): List<Tool> = authTools.filter { prefsGetEnabled(it.key) }
+    fun enabledUtility(): List<Tool> = utilityTools.filter { prefsGetEnabled(it.key) }
+    fun enabledTravel(): List<Tool> = travelTools.filter { prefsGetEnabled(it.key) }
+
+    fun anyAuthEnabled(): Boolean = enabledAuth().isNotEmpty()
+    fun anyUtilityEnabled(): Boolean = enabledUtility().isNotEmpty()
 
     when (currentScreen) {
         BridgeScreen.Home -> BridgeHome(
-            onSelect = { screen -> currentScreen = screen },
-            onOpenMaps = onOpenMaps,
+            enabledUtility = enabledUtility(),
+            statusText = statusText,
+            onClearStatus = { statusText = null },
+            onSelect = { screen ->
+                statusText = null
+                currentScreen = screen
+            },
             onOpenConnectivity = onOpenConnectivity,
             onOpenBluetooth = onOpenBluetooth,
             onOpenPhone = onOpenPhone,
-            onOpenMessages = onOpenMessages
+            onOpenMessages = onOpenMessages,
+            onOpenEnabledUtility = { tool ->
+                val ok = onTryLaunchPackage(tool.pkg)
+                statusText = if (ok) null else "${tool.title} not installed"
+            }
         )
 
-        BridgeScreen.AuthFirstRun -> AuthFirstRunScreen(
-            onEnable = { currentScreen = BridgeScreen.AuthConfig },
-            onBack = { currentScreen = BridgeScreen.Home }
+        // AUTH
+        BridgeScreen.AuthFirstRun -> FirstRunScreen(
+            title = "Auth",
+            enableLabel = "Enable auth apps",
+            onEnable = {
+                statusText = null
+                currentScreen = BridgeScreen.AuthConfig
+            },
+            onBack = {
+                statusText = null
+                currentScreen = BridgeScreen.Home
+            }
         )
 
         BridgeScreen.Auth -> {
             if (!anyAuthEnabled()) {
                 currentScreen = BridgeScreen.AuthFirstRun
             } else {
-                AuthMenuScreen(
-                    statusText = authStatus,
-                    enabledTools = authTools.filter { tool -> prefsGetEnabled(tool.key) },
+                ToolMenuScreen(
+                    title = "Auth",
+                    enabledTools = enabledAuth(),
+                    statusText = statusText,
+                    manageLabel = "Manage auth apps",
                     onBack = {
-                        authStatus = null
+                        statusText = null
                         currentScreen = BridgeScreen.Home
+                    },
+                    onManage = {
+                        statusText = null
+                        currentScreen = BridgeScreen.AuthConfig
                     },
                     onOpenTool = { tool ->
                         val ok = onTryLaunchPackage(tool.pkg)
-                        authStatus = if (ok) null else "${tool.title} not installed"
-                    },
-                    onManage = {
-                        authStatus = null
-                        currentScreen = BridgeScreen.AuthConfig
+                        statusText = if (ok) null else "${tool.title} not installed"
                     }
                 )
             }
         }
 
-
-        BridgeScreen.AuthConfig -> AuthConfigScreen(
-            onBack = { currentScreen = BridgeScreen.Auth },
+        BridgeScreen.AuthConfig -> ToolConfigScreen(
+            title = "Enable Auth Apps",
+            note = "Toggle which auth tools appear inside Bridge.",
+            tools = authTools,
+            onBack = {
+                statusText = null
+                currentScreen = BridgeScreen.Auth
+            },
             prefsGetEnabled = prefsGetEnabled,
-            prefsSetEnabled = prefsSetEnabled,
-            note = "Toggle which auth tools appear inside Bridge."
+            prefsSetEnabled = prefsSetEnabled
+        )
+
+        // UTILITY
+        BridgeScreen.UtilityFirstRun -> FirstRunScreen(
+            title = "Utility",
+            enableLabel = "Enable utility apps",
+            onEnable = {
+                statusText = null
+                currentScreen = BridgeScreen.UtilityConfig
+            },
+            onBack = {
+                statusText = null
+                currentScreen = BridgeScreen.Home
+            }
+        )
+
+        BridgeScreen.Utility -> {
+            if (!anyUtilityEnabled()) {
+                currentScreen = BridgeScreen.UtilityFirstRun
+            } else {
+                ToolMenuScreen(
+                    title = "Utility",
+                    enabledTools = enabledUtility(),
+                    statusText = statusText,
+                    manageLabel = "Manage utility apps",
+                    onBack = {
+                        statusText = null
+                        currentScreen = BridgeScreen.Home
+                    },
+                    onManage = {
+                        statusText = null
+                        currentScreen = BridgeScreen.UtilityConfig
+                    },
+                    onOpenTool = { tool ->
+                        val ok = onTryLaunchPackage(tool.pkg)
+                        statusText = if (ok) null else "${tool.title} not installed"
+                    }
+                )
+            }
+        }
+
+        BridgeScreen.UtilityConfig -> ToolConfigScreen(
+            title = "Enable Utility Apps",
+            note = "Toggle which utility apps appear inside Bridge.",
+            tools = utilityTools,
+            onBack = {
+                statusText = null
+                currentScreen = BridgeScreen.Utility
+            },
+            prefsGetEnabled = prefsGetEnabled,
+            prefsSetEnabled = prefsSetEnabled
+        )
+
+        // TRAVEL
+        BridgeScreen.Travel -> TravelMenuScreen(
+            enabledTravel = enabledTravel(),
+            statusText = statusText,
+            onBack = {
+                statusText = null
+                currentScreen = BridgeScreen.Home
+            },
+            onOpenMaps = {
+                statusText = null
+                onOpenMaps()
+            },
+            onOpenTool = { tool ->
+                val ok = onTryLaunchPackage(tool.pkg)
+                statusText = if (ok) null else "${tool.title} not installed"
+            },
+            onManage = {
+                statusText = null
+                currentScreen = BridgeScreen.TravelConfig
+            }
+        )
+
+        BridgeScreen.TravelConfig -> ToolConfigScreen(
+            title = "Enable Travel Apps",
+            note = "Toggle which travel apps appear inside Bridge.",
+            tools = travelTools,
+            onBack = {
+                statusText = null
+                currentScreen = BridgeScreen.Travel
+            },
+            prefsGetEnabled = prefsGetEnabled,
+            prefsSetEnabled = prefsSetEnabled
         )
 
         else -> PlaceholderScreen(
@@ -214,12 +379,15 @@ fun BridgeApp(
 
 @Composable
 fun BridgeHome(
+    enabledUtility: List<Tool>,
+    statusText: String?,
+    onClearStatus: () -> Unit,
     onSelect: (BridgeScreen) -> Unit,
-    onOpenMaps: () -> Unit,
     onOpenConnectivity: () -> Unit,
     onOpenBluetooth: () -> Unit,
     onOpenPhone: () -> Unit,
-    onOpenMessages: () -> Unit
+    onOpenMessages: () -> Unit,
+    onOpenEnabledUtility: (Tool) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -236,37 +404,58 @@ fun BridgeHome(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        menuItems.forEachIndexed { index, label ->
+        // Build menu rows: base + injected enabled utility apps (after "Utility")
+        val rows = buildList {
+            baseMenuItems.forEach { item ->
+                add(item)
+                if (item == "Utility") {
+                    enabledUtility.forEach { add(it.title) }
+                }
+            }
+        }
+
+        rows.forEachIndexed { index, label ->
             MenuRow(
                 index = index + 1,
                 label = label,
                 onClick = {
+                    onClearStatus()
+
+                    // If it’s one of the enabled utility labels, launch it
+                    val enabled = enabledUtility.firstOrNull { it.title == label }
+                    if (enabled != null) {
+                        onOpenEnabledUtility(enabled)
+                        return@MenuRow
+                    }
+
                     when (label) {
-                        "Maps" -> onOpenMaps()
-                        "Connectivity" -> onOpenConnectivity()
-                        "Bluetooth" -> onOpenBluetooth()
+                        "Library" -> onSelect(BridgeScreen.Library)
                         "Phone" -> onOpenPhone()
                         "Messages" -> onOpenMessages()
+                        "Travel" -> onSelect(BridgeScreen.Travel)
+                        "QR" -> onSelect(BridgeScreen.QR)
                         "Auth" -> onSelect(BridgeScreen.Auth)
-                        else -> {
-                            val screen = when (label) {
-                                "Library" -> BridgeScreen.Library
-                                "QR" -> BridgeScreen.QR
-                                "Exit Bridge" -> BridgeScreen.Exit
-                                else -> BridgeScreen.Home
-                            }
-                            onSelect(screen)
-                        }
+                        "Utility" -> onSelect(BridgeScreen.Utility)
+                        "Connectivity" -> onOpenConnectivity()
+                        "Bluetooth" -> onOpenBluetooth()
+                        "Exit Bridge" -> onSelect(BridgeScreen.Exit)
                     }
                 }
             )
             Spacer(modifier = Modifier.height(14.dp))
         }
+
+        if (!statusText.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(text = statusText, style = MaterialTheme.typography.bodyMedium)
+        }
     }
 }
 
 @Composable
-fun AuthFirstRunScreen(
+fun FirstRunScreen(
+    title: String,
+    enableLabel: String,
     onEnable: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -278,25 +467,28 @@ fun AuthFirstRunScreen(
         horizontalAlignment = Alignment.Start
     ) {
         Text(
-            text = "Auth",
+            text = title,
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.SemiBold
         )
 
         Spacer(modifier = Modifier.height(24.dp))
-        MenuRow(index = 1, label = "Enable auth apps", onClick = onEnable)
+
+        MenuRow(index = 1, label = enableLabel, onClick = onEnable)
         Spacer(modifier = Modifier.height(14.dp))
         MenuRow(index = 2, label = "Back", onClick = onBack)
     }
 }
 
 @Composable
-fun AuthMenuScreen(
+fun ToolMenuScreen(
+    title: String,
+    enabledTools: List<Tool>,
     statusText: String?,
-    enabledTools: List<AuthTool>,
+    manageLabel: String,
     onBack: () -> Unit,
-    onOpenTool: (AuthTool) -> Unit,
-    onManage: () -> Unit
+    onManage: () -> Unit,
+    onOpenTool: (Tool) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -306,7 +498,7 @@ fun AuthMenuScreen(
         horizontalAlignment = Alignment.Start
     ) {
         Text(
-            text = "Auth",
+            text = title,
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.SemiBold
         )
@@ -319,7 +511,7 @@ fun AuthMenuScreen(
             Spacer(modifier = Modifier.height(14.dp))
         }
 
-        MenuRow(index = rowIndex++, label = "Manage auth apps", onClick = onManage)
+        MenuRow(index = rowIndex++, label = manageLabel, onClick = onManage)
         Spacer(modifier = Modifier.height(14.dp))
         MenuRow(index = rowIndex, label = "Back", onClick = onBack)
 
@@ -331,11 +523,12 @@ fun AuthMenuScreen(
 }
 
 @Composable
-fun AuthMoreScreen(
+fun TravelMenuScreen(
+    enabledTravel: List<Tool>,
     statusText: String?,
-    enabledMore: List<AuthTool>,
     onBack: () -> Unit,
-    onOpenTool: (AuthTool) -> Unit,
+    onOpenMaps: () -> Unit,
+    onOpenTool: (Tool) -> Unit,
     onManage: () -> Unit
 ) {
     Column(
@@ -346,7 +539,7 @@ fun AuthMoreScreen(
         horizontalAlignment = Alignment.Start
     ) {
         Text(
-            text = "More Auth",
+            text = "Travel",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.SemiBold
         )
@@ -354,20 +547,19 @@ fun AuthMoreScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         var rowIndex = 1
-        if (enabledMore.isEmpty()) {
-            Text(
-                text = "No additional auth tools enabled.",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Spacer(modifier = Modifier.height(18.dp))
-        } else {
-            enabledMore.forEach { tool ->
-                MenuRow(index = rowIndex++, label = tool.title, onClick = { onOpenTool(tool) })
-                Spacer(modifier = Modifier.height(14.dp))
-            }
+
+        // Maps is always here now (moved under Travel)
+        MenuRow(index = rowIndex++, label = "Maps", onClick = onOpenMaps)
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Optional travel apps (Grab/Bolt etc.)
+        enabledTravel.forEach { tool ->
+            MenuRow(index = rowIndex++, label = tool.title, onClick = { onOpenTool(tool) })
+            Spacer(modifier = Modifier.height(14.dp))
         }
 
-        MenuRow(index = rowIndex++, label = "Manage auth apps", onClick = onManage)
+        // Manage travel apps (even if none enabled yet — lets you toggle Grab/Bolt later)
+        MenuRow(index = rowIndex++, label = "Manage travel apps", onClick = onManage)
         Spacer(modifier = Modifier.height(14.dp))
 
         MenuRow(index = rowIndex, label = "Back", onClick = onBack)
@@ -380,7 +572,7 @@ fun AuthMoreScreen(
 }
 
 @Composable
-private fun AuthToggleRow(
+private fun ToggleRow(
     index: Int,
     label: String,
     checked: Boolean,
@@ -414,21 +606,14 @@ private fun AuthToggleRow(
 }
 
 @Composable
-fun AuthConfigScreen(
+fun ToolConfigScreen(
+    title: String,
+    note: String,
+    tools: List<Tool>,
     onBack: () -> Unit,
     prefsGetEnabled: (String) -> Boolean,
-    prefsSetEnabled: (String, Boolean) -> Unit,
-    note: String
+    prefsSetEnabled: (String, Boolean) -> Unit
 ) {
-    val allTools = authTools
-
-    // ✅ Key fix: drive UI from a single state map, not per-row remember() state.
-    val state = remember {
-        mutableStateMapOf<String, Boolean>().apply {
-            allTools.forEach { put(it.key, prefsGetEnabled(it.key)) }
-        }
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -437,7 +622,7 @@ fun AuthConfigScreen(
         horizontalAlignment = Alignment.Start
     ) {
         Text(
-            text = "Enable Auth Apps",
+            text = title,
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.SemiBold
         )
@@ -447,17 +632,16 @@ fun AuthConfigScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        allTools.forEachIndexed { index, tool ->
-            val enabled = state[tool.key] == true
+        tools.forEachIndexed { index, tool ->
+            var enabled by remember(tool.key) { mutableStateOf(prefsGetEnabled(tool.key)) }
 
-            AuthToggleRow(
+            ToggleRow(
                 index = index + 1,
                 label = tool.title,
                 checked = enabled,
                 onToggle = {
-                    val newValue = !enabled
-                    state[tool.key] = newValue
-                    prefsSetEnabled(tool.key, newValue)
+                    enabled = !enabled
+                    prefsSetEnabled(tool.key, enabled)
                 }
             )
 
@@ -465,7 +649,7 @@ fun AuthConfigScreen(
         }
 
         Spacer(modifier = Modifier.height(10.dp))
-        MenuRow(index = allTools.size + 1, label = "Back", onClick = onBack)
+        MenuRow(index = tools.size + 1, label = "Back", onClick = onBack)
     }
 }
 
@@ -514,6 +698,7 @@ fun PlaceholderScreen(title: String, onBack: () -> Unit) {
         )
 
         Spacer(modifier = Modifier.height(12.dp))
+
         Text(
             text = "Tap to return",
             style = MaterialTheme.typography.bodyMedium
