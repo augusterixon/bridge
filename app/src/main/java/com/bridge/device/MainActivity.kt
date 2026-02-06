@@ -1,5 +1,9 @@
 package com.bridge.device
 
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
+import android.content.Context
+import android.os.Build
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -19,11 +23,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.bridge.device.ui.theme.BridgeTheme
+import android.app.ActivityManager
 
 class MainActivity : ComponentActivity() {
+
+    private val dpm by lazy { getSystemService(DevicePolicyManager::class.java) }
+    private val admin by lazy { ComponentName(this, MyDeviceAdminReceiver::class.java) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        
+        if (dpm.isDeviceOwnerApp(packageName)) {
+            try {
+                dpm.setLockTaskPackages(admin, arrayOf(packageName))
+                
+                
+            } catch (_: SecurityException) {
+                
+            }
+        }
 
         setContent {
             BridgeTheme {
@@ -39,12 +59,51 @@ class MainActivity : ComponentActivity() {
                             getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(key, false)
                         },
                         prefsSetEnabled = { key, value ->
-                            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                                .edit()
                                 .putBoolean(key, value)
                                 .apply()
                         }
                     )
                 }
+            }
+        }
+
+        
+        enableKioskIfDeviceOwner()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        
+        enableKioskIfDeviceOwner()
+    }
+
+    private fun enableKioskIfDeviceOwner() {
+        val dpm = getSystemService(DevicePolicyManager::class.java)
+        if (!dpm.isDeviceOwnerApp(packageName)) return
+    
+        val admin = ComponentName(this, MyDeviceAdminReceiver::class.java)
+    
+        
+        dpm.setLockTaskPackages(admin, arrayOf(packageName))
+    
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            dpm.setStatusBarDisabled(admin, true)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            dpm.setKeyguardDisabled(admin, true)
+        }
+    
+        val am = getSystemService(ActivityManager::class.java)
+    
+        
+        if (am.lockTaskModeState == ActivityManager.LOCK_TASK_MODE_NONE) {
+            try {
+                startLockTask()
+            } catch (_: Throwable) {
+                
             }
         }
     }
@@ -94,7 +153,7 @@ private const val PKG_BOLT = "ee.mtakso.client"
 /** prefs */
 private const val PREFS_NAME = "bridge_prefs"
 
-// auth keys
+
 private const val KEY_ENABLE_BANKID = "enable_bankid"
 private const val KEY_ENABLE_MS_AUTH = "enable_ms_auth"
 private const val KEY_ENABLE_GOOGLE_AUTH = "enable_google_auth"
@@ -102,12 +161,12 @@ private const val KEY_ENABLE_OKTA = "enable_okta"
 private const val KEY_ENABLE_DUO = "enable_duo"
 private const val KEY_ENABLE_AUTHY = "enable_authy"
 
-// utility keys
+
 private const val KEY_ENABLE_WHATSAPP = "enable_whatsapp"
 private const val KEY_ENABLE_SPOTIFY = "enable_spotify"
 private const val KEY_ENABLE_UBER = "enable_uber"
 
-// travel keys
+
 private const val KEY_ENABLE_GRAB = "enable_grab"
 private const val KEY_ENABLE_BOLT = "enable_bolt"
 
@@ -145,17 +204,17 @@ enum class BridgeScreen {
     Library,
     QR,
 
-    // Auth
+    
     Auth,
     AuthFirstRun,
     AuthConfig,
 
-    // Utility
+    
     Utility,
     UtilityFirstRun,
     UtilityConfig,
 
-    // Travel
+    
     Travel,
     TravelConfig,
 
@@ -163,6 +222,10 @@ enum class BridgeScreen {
     Bluetooth,
     Exit
 }
+
+private fun deviceAdminComponent(context: Context): ComponentName =
+    ComponentName(context, MyDeviceAdminReceiver::class.java)
+
 
 private fun tryLaunchPackage(activity: ComponentActivity, pkg: String): Boolean {
     val intent = activity.packageManager.getLaunchIntentForPackage(pkg) ?: return false
@@ -234,7 +297,7 @@ fun BridgeApp(
             }
         )
 
-        // AUTH
+        
         BridgeScreen.AuthFirstRun -> FirstRunScreen(
             title = "Auth",
             enableLabel = "Enable auth apps",
@@ -285,7 +348,7 @@ fun BridgeApp(
             prefsSetEnabled = prefsSetEnabled
         )
 
-        // UTILITY
+        
         BridgeScreen.UtilityFirstRun -> FirstRunScreen(
             title = "Utility",
             enableLabel = "Enable utility apps",
@@ -336,7 +399,7 @@ fun BridgeApp(
             prefsSetEnabled = prefsSetEnabled
         )
 
-        // TRAVEL
+        
         BridgeScreen.Travel -> TravelMenuScreen(
             enabledTravel = enabledTravel(),
             statusText = statusText,
@@ -404,7 +467,7 @@ fun BridgeHome(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Build menu rows: base + injected enabled utility apps (after "Utility")
+        
         val rows = buildList {
             baseMenuItems.forEach { item ->
                 add(item)
@@ -421,7 +484,7 @@ fun BridgeHome(
                 onClick = {
                     onClearStatus()
 
-                    // If it’s one of the enabled utility labels, launch it
+                    
                     val enabled = enabledUtility.firstOrNull { it.title == label }
                     if (enabled != null) {
                         onOpenEnabledUtility(enabled)
@@ -548,17 +611,17 @@ fun TravelMenuScreen(
 
         var rowIndex = 1
 
-        // Maps is always here now (moved under Travel)
+        
         MenuRow(index = rowIndex++, label = "Maps", onClick = onOpenMaps)
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Optional travel apps (Grab/Bolt etc.)
+        
         enabledTravel.forEach { tool ->
             MenuRow(index = rowIndex++, label = tool.title, onClick = { onOpenTool(tool) })
             Spacer(modifier = Modifier.height(14.dp))
         }
 
-        // Manage travel apps (even if none enabled yet — lets you toggle Grab/Bolt later)
+        
         MenuRow(index = rowIndex++, label = "Manage travel apps", onClick = onManage)
         Spacer(modifier = Modifier.height(14.dp))
 
