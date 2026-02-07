@@ -11,18 +11,20 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
 
     override fun onEnabled(context: Context, intent: Intent) {
         super.onEnabled(context, intent)
-        val dpm = context.getSystemService(DevicePolicyManager::class.java)
+        val dpm = context.getSystemService(DevicePolicyManager::class.java) ?: return
         val admin = ComponentName(context, MyDeviceAdminReceiver::class.java)
 
-        // Allow Bridge to run in lock task (kiosk) mode
-        dpm.setLockTaskPackages(admin, arrayOf(context.packageName))
+        try {
+            dpm.setLockTaskPackages(admin, arrayOf(context.packageName))
+        } catch (_: Exception) {}
 
-        // Optional: make Bridge the persistent preferred HOME handler
-        val filter = IntentFilter(Intent.ACTION_MAIN).apply {
-            addCategory(Intent.CATEGORY_HOME)
-            addCategory(Intent.CATEGORY_DEFAULT)
-        }
-        val activity = ComponentName(context, MainActivity::class.java)
-        dpm.addPersistentPreferredActivity(admin, filter, activity)
+        try {
+            val filter = IntentFilter(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                addCategory(Intent.CATEGORY_DEFAULT)
+            }
+            val activity = ComponentName(context, MainActivity::class.java)
+            dpm.addPersistentPreferredActivity(admin, filter, activity)
+        } catch (_: Exception) {}
     }
 }

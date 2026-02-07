@@ -2,28 +2,19 @@ package com.bridge.device
 
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
-import android.content.Context
-import android.os.Build
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import com.bridge.device.ui.theme.BridgeTheme
-import android.app.ActivityManager
+import android.content.IntentFilter
 
 class MainActivity : ComponentActivity() {
 
@@ -34,27 +25,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        
-        if (dpm.isDeviceOwnerApp(packageName)) {
-            try {
-                dpm.setLockTaskPackages(admin, arrayOf(packageName))
-                
-                
-            } catch (_: SecurityException) {
-                
-            }
-        }
-
         setContent {
             BridgeTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     BridgeApp(
-                        onOpenMaps = { openMapsNavigation(activity = this) },
+                        onOpenMaps = { openMapsNavigation(activity = this@MainActivity) },
                         onOpenConnectivity = { startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS)) },
                         onOpenBluetooth = { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) },
-                        onOpenPhone = { openDialer(this) },
-                        onOpenMessages = { openSms(this) },
-                        onTryLaunchPackage = { pkg -> tryLaunchPackage(this, pkg) },
+                        onOpenPhone = { openDialer(this@MainActivity) },
+                        onOpenMessages = { openSms(this@MainActivity) },
+                        onTryLaunchPackage = { pkg -> tryLaunchPackage(this@MainActivity, pkg) },
                         prefsGetEnabled = { key ->
                             getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(key, false)
                         },
@@ -69,43 +49,46 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        
         enableKioskIfDeviceOwner()
     }
 
     override fun onResume() {
         super.onResume()
-        
         enableKioskIfDeviceOwner()
     }
 
     private fun enableKioskIfDeviceOwner() {
-        val dpm = getSystemService(DevicePolicyManager::class.java)
         if (!dpm.isDeviceOwnerApp(packageName)) return
     
-        val admin = ComponentName(this, MyDeviceAdminReceiver::class.java)
+        
+        try {
+            dpm.setLockTaskPackages(admin, arrayOf(packageName))
+        } catch (_: SecurityException) {
+            return
+        }
     
         
-        dpm.setLockTaskPackages(admin, arrayOf(packageName))
+        try {
+            val filter = IntentFilter(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                addCategory(Intent.CATEGORY_DEFAULT)
+            }
+            val activity = ComponentName(this, MainActivity::class.java)
+            dpm.addPersistentPreferredActivity(admin, filter, activity)
+        } catch (_: Throwable) {}
     
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            dpm.setStatusBarDisabled(admin, true)
+            try { dpm.setStatusBarDisabled(admin, true) } catch (_: Throwable) {}
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            dpm.setKeyguardDisabled(admin, true)
+            try { dpm.setKeyguardDisabled(admin, true) } catch (_: Throwable) {}
+            
+            
         }
-    
-        val am = getSystemService(ActivityManager::class.java)
     
         
-        if (am.lockTaskModeState == ActivityManager.LOCK_TASK_MODE_NONE) {
-            try {
-                startLockTask()
-            } catch (_: Throwable) {
-                
-            }
-        }
+        try { startLockTask() } catch (_: Throwable) {}
     }
 }
 
