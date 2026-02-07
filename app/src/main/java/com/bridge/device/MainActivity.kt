@@ -2,27 +2,74 @@ package com.bridge.device
 
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowCompat
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import com.bridge.device.ui.theme.BridgeTheme
-import android.content.IntentFilter
 
 class MainActivity : ComponentActivity() {
 
-    private val dpm by lazy { getSystemService(DevicePolicyManager::class.java) }
-    private val admin by lazy { ComponentName(this, MyDeviceAdminReceiver::class.java) }
+    private lateinit var dpm: DevicePolicyManager
+    private lateinit var admin: ComponentName
+
+    // Prevent repeated/early LockTask calls
+    private var kioskStarted = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        dpm = getSystemService(DevicePolicyManager::class.java)
+        admin = ComponentName(this, MyDeviceAdminReceiver::class.java)
+
+        // Hard black immediately (only affects once our window exists)
+        window.decorView.setBackgroundColor(Color.BLACK)
+
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        @Suppress("DEPRECATION")
+        window.statusBarColor = Color.BLACK
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = Color.BLACK
+
+        // ✅ Policies only (NO startLockTask here)
+        applyDeviceOwnerPolicies()
+
+        // Switch from Splash theme to real theme ASAP
+        setTheme(R.style.Theme_Bridge)
+
         enableEdgeToEdge()
 
         setContent {
@@ -30,8 +77,8 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     BridgeApp(
                         onOpenMaps = { openMapsNavigation(activity = this@MainActivity) },
-                        onOpenConnectivity = { startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS)) },
-                        onOpenBluetooth = { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) },
+                        onOpenConnectivity = { startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) },
+                        onOpenBluetooth = { startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)) },
                         onOpenPhone = { openDialer(this@MainActivity) },
                         onOpenMessages = { openSms(this@MainActivity) },
                         onTryLaunchPackage = { pkg -> tryLaunchPackage(this@MainActivity, pkg) },
@@ -39,56 +86,88 @@ class MainActivity : ComponentActivity() {
                             getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(key, false)
                         },
                         prefsSetEnabled = { key, value ->
-                            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                                .edit()
-                                .putBoolean(key, value)
-                                .apply()
+                            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit {
+                                putBoolean(key, value)
+                            }
                         }
                     )
                 }
             }
         }
-
-        enableKioskIfDeviceOwner()
     }
 
     override fun onResume() {
         super.onResume()
-        enableKioskIfDeviceOwner()
+        // keep policies applied; idempotent
+        applyDeviceOwnerPolicies()
+        // DO NOT try kiosk here unless we also have focus
     }
 
-    private fun enableKioskIfDeviceOwner() {
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) enterKioskWhenReady()
+    }
+
+    private fun applyDeviceOwnerPolicies() {
         if (!dpm.isDeviceOwnerApp(packageName)) return
-    
-        
+
+        // Allow Bridge to be used for LockTask
         try {
             dpm.setLockTaskPackages(admin, arrayOf(packageName))
-        } catch (_: SecurityException) {
+        } catch (_: Throwable) {
             return
         }
-    
-        
+
+        // Make Bridge persistent HOME
         try {
             val filter = IntentFilter(Intent.ACTION_MAIN).apply {
                 addCategory(Intent.CATEGORY_HOME)
                 addCategory(Intent.CATEGORY_DEFAULT)
             }
-            val activity = ComponentName(this, MainActivity::class.java)
-            dpm.addPersistentPreferredActivity(admin, filter, activity)
+            dpm.addPersistentPreferredActivity(
+                admin,
+                filter,
+                ComponentName(this, MainActivity::class.java)
+            )
         } catch (_: Throwable) {}
-    
-        
+
+        // Hide status bar / keyguard (best effort)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try { dpm.setStatusBarDisabled(admin, true) } catch (_: Throwable) {}
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try { dpm.setKeyguardDisabled(admin, true) } catch (_: Throwable) {}
-            
-            
         }
-    
-        
-        try { startLockTask() } catch (_: Throwable) {}
+    }
+
+    private fun enterKioskWhenReady() {
+        if (!dpm.isDeviceOwnerApp(packageName)) return
+        if (kioskStarted) return
+
+        // Post to next frame so this activity’s task is truly foreground.
+        window.decorView.post {
+            tryStartLockTaskWithRetry()
+        }
+    }
+
+    private fun tryStartLockTaskWithRetry() {
+        if (kioskStarted) return
+
+        // Attempt now
+        try {
+            startLockTask()
+            kioskStarted = true
+            return
+        } catch (_: Throwable) {}
+
+        // Retry once shortly (boot/home transitions can be racy)
+        window.decorView.postDelayed({
+            if (kioskStarted) return@postDelayed
+            try {
+                startLockTask()
+                kioskStarted = true
+            } catch (_: Throwable) {}
+        }, 250)
     }
 }
 
