@@ -1,11 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.Bridge" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
-        <item name="android:statusBarColor">@color/black</item>
-        <item name="android:navigationBarColor">@color/black</item>
-    </style>
+<style name="Theme.Bridge" parent="android:Theme.Material.Light.NoActionBar">
+    <item name="android:windowBackground">@color/black</item>
+    <item name="android:colorBackground">@color/black</item>
+
+    <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    <item name="android:statusBarColor">@color/black</item>
+    <item name="android:navigationBarColor">@color/black</item>
+
+    <item name="android:windowShowWallpaper">false</item>
+    <item name="android:enforceNavigationBarContrast">false</item>
+    <item name="android:enforceStatusBarContrast">false</item>
+</style>
 
     <style name="Theme.Bridge.Splash" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/black</item>

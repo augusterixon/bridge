@@ -27,3 +27,18 @@ The v1 spec is frozen. Changes must be logged here.
 **Decision:** No Camera app exists; camera is only used inside QR scanner.  
 **Reason:** QR is essential infrastructure, photography is not.  
 **Impact:** Case aperture must support QR only.
+
+## 2026-02-12 — App distribution
+Chosen: Android Enterprise + Managed Google Play (free) over Esper ($/device/month).
+
+Reason:
+- scalable, no per-device cost
+- silent install & updates
+- no consumer Google accounts
+- decrease setup time per device
+
+Tradeoffs:
+- moderate initial setup complexity
+
+## 2026-02-12 — Email host
+Chosen: Zoho Mail Lite plan $15 per year incl tax, for business email. 

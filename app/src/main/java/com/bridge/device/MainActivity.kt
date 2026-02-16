@@ -1,5 +1,16 @@
 package com.bridge.device
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
@@ -9,9 +20,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.provider.Settings
+import androidx.core.content.edit
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -48,6 +57,8 @@ class MainActivity : ComponentActivity() {
 
     // Prevent repeated/early LockTask calls
     private var kioskStarted = false
+
+    private var policiesApplied = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,9 +109,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // keep policies applied; idempotent
-        applyDeviceOwnerPolicies()
-        // DO NOT try kiosk here unless we also have focus
+        if (!policiesApplied) {
+            applyDeviceOwnerPolicies()
+            policiesApplied = true
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -110,28 +122,30 @@ class MainActivity : ComponentActivity() {
 
     private fun applyDeviceOwnerPolicies() {
         if (!dpm.isDeviceOwnerApp(packageName)) return
-
-        // Allow Bridge to be used for LockTask
-        try {
-            dpm.setLockTaskPackages(admin, arrayOf(packageName))
-        } catch (_: Throwable) {
-            return
+        if (BuildConfig.DEBUG) {
+            try {
+                dpm.clearPackagePersistentPreferredActivities(admin, packageName)
+            } catch (_: Throwable) {}
         }
-
-        // Make Bridge persistent HOME
-        try {
-            val filter = IntentFilter(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-                addCategory(Intent.CATEGORY_DEFAULT)
-            }
-            dpm.addPersistentPreferredActivity(
-                admin,
-                filter,
-                ComponentName(this, MainActivity::class.java)
-            )
-        } catch (_: Throwable) {}
-
-        // Hide status bar / keyguard (best effort)
+    
+        // Allow Bridge to be used for LockTask
+        try { dpm.setLockTaskPackages(admin, arrayOf(packageName)) } catch (_: Throwable) { return }
+    
+        // ✅ DO NOT set persistent HOME while debugging
+        if (!BuildConfig.DEBUG) {
+            try {
+                val filter = IntentFilter(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                    addCategory(Intent.CATEGORY_DEFAULT)
+                }
+                dpm.addPersistentPreferredActivity(
+                    admin,
+                    filter,
+                    ComponentName(this, MainActivity::class.java)
+                )
+            } catch (_: Throwable) {}
+        }
+    
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try { dpm.setStatusBarDisabled(admin, true) } catch (_: Throwable) {}
         }
@@ -140,14 +154,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun clearPersistentHomeBinding() {
+        if (!dpm.isDeviceOwnerApp(packageName)) return
+        try {
+            dpm.clearPackagePersistentPreferredActivities(admin, packageName)
+        } catch (_: Throwable) {}
+    }
+
     private fun enterKioskWhenReady() {
         if (!dpm.isDeviceOwnerApp(packageName)) return
+        if (BuildConfig.DEBUG) return  
         if (kioskStarted) return
-
-        // Post to next frame so this activity’s task is truly foreground.
-        window.decorView.post {
-            tryStartLockTaskWithRetry()
-        }
+    
+        window.decorView.post { tryStartLockTaskWithRetry() }
     }
 
     private fun tryStartLockTaskWithRetry() {
@@ -300,8 +319,8 @@ private fun openDialer(activity: ComponentActivity) {
 }
 
 private fun openSms(activity: ComponentActivity) {
-    val intent = Intent(Intent.ACTION_MAIN).apply {
-        addCategory(Intent.CATEGORY_APP_MESSAGING)
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        data = Uri.parse("sms:")
     }
     activity.startActivity(intent)
 }
@@ -341,7 +360,7 @@ fun BridgeApp(
     fun anyUtilityEnabled(): Boolean = enabledUtility().isNotEmpty()
 
     when (currentScreen) {
-        BridgeScreen.Home -> BridgeHome(
+        BridgeScreen.Home -> BridgeHomeGrid(
             enabledUtility = enabledUtility(),
             statusText = statusText,
             onClearStatus = { statusText = null },
@@ -573,6 +592,183 @@ fun BridgeHome(
         if (!statusText.isNullOrBlank()) {
             Spacer(modifier = Modifier.height(10.dp))
             Text(text = statusText, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+private val BRIDGE_BG = ComposeColor(0xFF121314)      // dark gray
+private val BRIDGE_TILE = ComposeColor(0xFF1A1C1E)    // slightly lighter tile
+private val BRIDGE_TILE_PRESSED = ComposeColor(0xFF202327)
+private val BRIDGE_TEXT = ComposeColor(0xFFE6E7E8)
+private val BRIDGE_MUTED = ComposeColor(0xFF9EA3A8)
+
+private val timeFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+
+private fun String.bridgeLower(): String = this.lowercase()
+
+@Composable
+fun BridgeHomeGrid(
+    enabledUtility: List<Tool>,
+    statusText: String?,
+    onClearStatus: () -> Unit,
+    onSelect: (BridgeScreen) -> Unit,
+    onOpenConnectivity: () -> Unit,
+    onOpenBluetooth: () -> Unit,
+    onOpenPhone: () -> Unit,
+    onOpenMessages: () -> Unit,
+    onOpenEnabledUtility: (Tool) -> Unit
+) {
+    // Build our tiles in a fixed 2x4 grid.
+    // We keep Utility as a destination (opens Utility screen).
+    // Enabled utility apps are not injected into Home anymore (keeps grid calm).
+    // If you want Spotify/WhatsApp to be direct tiles, we can dedicate one tile to “utility app”
+    // and show the top enabled apps via a small list inside the tile.
+    val tiles: List<Pair<String, () -> Unit>> = listOf(
+        "phone" to { onClearStatus(); onOpenPhone() },
+        "messages" to { onClearStatus(); onOpenMessages() },
+        "travel" to { onClearStatus(); onSelect(BridgeScreen.Travel) },
+        "auth" to { onClearStatus(); onSelect(BridgeScreen.Auth) },
+        "utility" to { onClearStatus(); onSelect(BridgeScreen.Utility) },
+        "connectivity" to { onClearStatus(); onOpenConnectivity() },
+        "bluetooth" to { onClearStatus(); onOpenBluetooth() },
+        "library" to { onClearStatus(); onSelect(BridgeScreen.Library) },
+    )
+
+    // Subtle time. Updates every 30s.
+    var nowText by remember { mutableStateOf(LocalTime.now().format(timeFmt)) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            nowText = LocalTime.now().format(timeFmt)
+            kotlinx.coroutines.delay(30_000)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BRIDGE_BG)
+            .padding(horizontal = 18.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.Top,
+        horizontalAlignment = Alignment.Start
+    ) {
+        // Top bar: brand + time (subtle)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "bridge",
+                color = BRIDGE_TEXT,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = nowText,
+                color = BRIDGE_MUTED,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Normal
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // 2x4 grid using Rows of 2 tiles
+        val corner = 10.dp // set to 0.dp if you want perfectly square
+        val shape = RoundedCornerShape(corner)
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            tiles.chunked(2).forEach { rowTiles ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    rowTiles.forEach { (label, action) ->
+                        BridgeTile(
+                            label = label.bridgeLower(),
+                            shape = shape,
+                            modifier = Modifier
+                                .weight(1f)
+                                .aspectRatio(1.35f),
+                            onClick = action,
+                            // Optional: show small “installed” hint inside Utility tile
+                            hint = if (label == "utility" && enabledUtility.isNotEmpty()) {
+                                "${enabledUtility.size} enabled"
+                            } else null
+                        )
+                    }
+                    // If odd count (shouldn’t happen), fill space
+                    if (rowTiles.size == 1) Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+
+        // Status line, calm + small
+        if (!statusText.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = statusText,
+                color = BRIDGE_MUTED,
+                fontSize = 13.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        // Optional hidden "exit" tile later (do NOT show for now)
+        // We'll implement a long-press gesture or admin-only action later.
+    }
+}
+
+@Composable
+private fun BridgeTile(
+    label: String,
+    shape: RoundedCornerShape,
+    modifier: Modifier = Modifier,
+    hint: String? = null,
+    onClick: () -> Unit
+) {
+    // Minimal “pressed” affordance without feeling rewarding
+    var pressed by remember { mutableStateOf(false) }
+    val bg = if (pressed) BRIDGE_TILE_PRESSED else BRIDGE_TILE
+
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(bg)
+            .clickable(
+                onClick = onClick,
+                onClickLabel = label
+            )
+            .padding(16.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.Start
+        ) {
+            Text(
+                text = label,
+                color = BRIDGE_TEXT,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            if (!hint.isNullOrBlank()) {
+                Text(
+                    text = hint,
+                    color = BRIDGE_MUTED,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Normal
+                )
+            }
         }
     }
 }
