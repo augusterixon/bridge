@@ -2,7 +2,6 @@ package com.bridge.device
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.clip
@@ -28,14 +27,17 @@ import androidx.core.view.WindowCompat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -85,7 +87,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             BridgeTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = BRIDGE_BG
+                ) {
                     BridgeApp(
                         onOpenMaps = { openMapsNavigation(activity = this@MainActivity) },
                         onOpenConnectivity = { startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) },
@@ -360,7 +365,7 @@ fun BridgeApp(
     fun anyUtilityEnabled(): Boolean = enabledUtility().isNotEmpty()
 
     when (currentScreen) {
-        BridgeScreen.Home -> BridgeHomeGrid(
+        BridgeScreen.Home -> BridgeHomeStack(
             enabledUtility = enabledUtility(),
             statusText = statusText,
             onClearStatus = { statusText = null },
@@ -533,65 +538,42 @@ fun BridgeHome(
     onOpenMessages: () -> Unit,
     onOpenEnabledUtility: (Tool) -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 32.dp),
-        verticalArrangement = Arrangement.Top,
-        horizontalAlignment = Alignment.Start
-    ) {
-        Text(
-            text = "Bridge",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        
-        val rows = buildList {
-            baseMenuItems.forEach { item ->
-                add(item)
-                if (item == "Utility") {
-                    enabledUtility.forEach { add(it.title) }
-                }
+    val rows = buildList {
+        baseMenuItems.forEach { item ->
+            add(item)
+            if (item == "Utility") {
+                enabledUtility.forEach { add(it.title) }
             }
         }
-
-        rows.forEachIndexed { index, label ->
-            MenuRow(
-                index = index + 1,
-                label = label,
-                onClick = {
-                    onClearStatus()
-
-                    
-                    val enabled = enabledUtility.firstOrNull { it.title == label }
-                    if (enabled != null) {
-                        onOpenEnabledUtility(enabled)
-                        return@MenuRow
+    }
+    BridgeScaffold(title = "bridge", statusText = statusText) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)) {
+            rows.forEach { label ->
+                BridgeRowTile(
+                    label = label,
+                    onClick = {
+                        onClearStatus()
+                        val enabled = enabledUtility.firstOrNull { it.title == label }
+                        if (enabled != null) {
+                            onOpenEnabledUtility(enabled)
+                            return@BridgeRowTile
+                        }
+                        when (label) {
+                            "Library" -> onSelect(BridgeScreen.Library)
+                            "Phone" -> onOpenPhone()
+                            "Messages" -> onOpenMessages()
+                            "Travel" -> onSelect(BridgeScreen.Travel)
+                            "QR" -> onSelect(BridgeScreen.QR)
+                            "Auth" -> onSelect(BridgeScreen.Auth)
+                            "Utility" -> onSelect(BridgeScreen.Utility)
+                            "Connectivity" -> onOpenConnectivity()
+                            "Bluetooth" -> onOpenBluetooth()
+                            "Exit Bridge" -> onSelect(BridgeScreen.Exit)
+                        }
                     }
-
-                    when (label) {
-                        "Library" -> onSelect(BridgeScreen.Library)
-                        "Phone" -> onOpenPhone()
-                        "Messages" -> onOpenMessages()
-                        "Travel" -> onSelect(BridgeScreen.Travel)
-                        "QR" -> onSelect(BridgeScreen.QR)
-                        "Auth" -> onSelect(BridgeScreen.Auth)
-                        "Utility" -> onSelect(BridgeScreen.Utility)
-                        "Connectivity" -> onOpenConnectivity()
-                        "Bluetooth" -> onOpenBluetooth()
-                        "Exit Bridge" -> onSelect(BridgeScreen.Exit)
-                    }
-                }
-            )
-            Spacer(modifier = Modifier.height(14.dp))
-        }
-
-        if (!statusText.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(text = statusText, style = MaterialTheme.typography.bodyMedium)
+                )
+            }
         }
     }
 }
@@ -602,12 +584,115 @@ private val BRIDGE_TILE_PRESSED = ComposeColor(0xFF202327)
 private val BRIDGE_TEXT = ComposeColor(0xFFE6E7E8)
 private val BRIDGE_MUTED = ComposeColor(0xFF9EA3A8)
 
+// Stack layout: set to 0.dp for square tiles
+private val BRIDGE_TILE_CORNER = 10.dp
+private val BRIDGE_TILE_SPACING = 10.dp
+
 private val timeFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
 private fun String.bridgeLower(): String = this.lowercase()
 
 @Composable
-fun BridgeHomeGrid(
+fun BridgeScaffold(
+    title: String,
+    statusText: String? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    var nowText by remember { mutableStateOf(LocalTime.now().format(timeFmt)) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            nowText = LocalTime.now().format(timeFmt)
+            kotlinx.coroutines.delay(30_000)
+        }
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BRIDGE_BG)
+            .padding(horizontal = 18.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.Top,
+        horizontalAlignment = Alignment.Start
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title.bridgeLower(),
+                color = BRIDGE_TEXT,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = nowText,
+                color = BRIDGE_MUTED,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Normal
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        content()
+        if (!statusText.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = statusText,
+                color = BRIDGE_MUTED,
+                fontSize = 13.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/** Reusable full-width row tile for list-style screens (min 64dp, rounded, Bridge colors). */
+@Composable
+fun BridgeRowTile(
+    label: String,
+    hint: String? = null,
+    onClick: () -> Unit
+) {
+    var pressed by remember { mutableStateOf(false) }
+    val bg = if (pressed) BRIDGE_TILE_PRESSED else BRIDGE_TILE
+    val shape = RoundedCornerShape(BRIDGE_TILE_CORNER)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 64.dp)
+            .clip(shape)
+            .background(bg)
+            .clickable(onClick = onClick, onClickLabel = label)
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.Start
+        ) {
+            Text(
+                text = label.bridgeLower(),
+                color = BRIDGE_TEXT,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (!hint.isNullOrBlank()) {
+                Text(
+                    text = hint,
+                    color = BRIDGE_MUTED,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Normal
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun BridgeHomeStack(
     enabledUtility: List<Tool>,
     statusText: String?,
     onClearStatus: () -> Unit,
@@ -618,11 +703,6 @@ fun BridgeHomeGrid(
     onOpenMessages: () -> Unit,
     onOpenEnabledUtility: (Tool) -> Unit
 ) {
-    // Build our tiles in a fixed 2x4 grid.
-    // We keep Utility as a destination (opens Utility screen).
-    // Enabled utility apps are not injected into Home anymore (keeps grid calm).
-    // If you want Spotify/WhatsApp to be direct tiles, we can dedicate one tile to “utility app”
-    // and show the top enabled apps via a small list inside the tile.
     val tiles: List<Pair<String, () -> Unit>> = listOf(
         "phone" to { onClearStatus(); onOpenPhone() },
         "messages" to { onClearStatus(); onOpenMessages() },
@@ -651,7 +731,6 @@ fun BridgeHomeGrid(
         verticalArrangement = Arrangement.Top,
         horizontalAlignment = Alignment.Start
     ) {
-        // Top bar: brand + time (subtle)
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -671,40 +750,26 @@ fun BridgeHomeGrid(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // 2x4 grid using Rows of 2 tiles
-        val corner = 10.dp // set to 0.dp if you want perfectly square
-        val shape = RoundedCornerShape(corner)
+        val shape = RoundedCornerShape(BRIDGE_TILE_CORNER)
 
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)
         ) {
-            tiles.chunked(2).forEach { rowTiles ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    rowTiles.forEach { (label, action) ->
-                        BridgeTile(
-                            label = label.bridgeLower(),
-                            shape = shape,
-                            modifier = Modifier
-                                .weight(1f)
-                                .aspectRatio(1.35f),
-                            onClick = action,
-                            // Optional: show small “installed” hint inside Utility tile
-                            hint = if (label == "utility" && enabledUtility.isNotEmpty()) {
-                                "${enabledUtility.size} enabled"
-                            } else null
-                        )
-                    }
-                    // If odd count (shouldn’t happen), fill space
-                    if (rowTiles.size == 1) Spacer(modifier = Modifier.weight(1f))
-                }
+            tiles.forEach { (label, action) ->
+                BridgeHomeTile(
+                    label = label.bridgeLower(),
+                    shape = shape,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .heightIn(min = 56.dp),
+                    onClick = action
+                )
             }
         }
 
@@ -726,14 +791,12 @@ fun BridgeHomeGrid(
 }
 
 @Composable
-private fun BridgeTile(
+private fun BridgeHomeTile(
     label: String,
     shape: RoundedCornerShape,
     modifier: Modifier = Modifier,
-    hint: String? = null,
     onClick: () -> Unit
 ) {
-    // Minimal “pressed” affordance without feeling rewarding
     var pressed by remember { mutableStateOf(false) }
     val bg = if (pressed) BRIDGE_TILE_PRESSED else BRIDGE_TILE
 
@@ -745,31 +808,17 @@ private fun BridgeTile(
                 onClick = onClick,
                 onClickLabel = label
             )
-            .padding(16.dp)
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        contentAlignment = Alignment.CenterStart
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween,
-            horizontalAlignment = Alignment.Start
-        ) {
-            Text(
-                text = label,
-                color = BRIDGE_TEXT,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            if (!hint.isNullOrBlank()) {
-                Text(
-                    text = hint,
-                    color = BRIDGE_MUTED,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Normal
-                )
-            }
-        }
+        Text(
+            text = label,
+            color = BRIDGE_TEXT,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -780,24 +829,12 @@ fun FirstRunScreen(
     onEnable: () -> Unit,
     onBack: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 32.dp),
-        verticalArrangement = Arrangement.Top,
-        horizontalAlignment = Alignment.Start
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        MenuRow(index = 1, label = enableLabel, onClick = onEnable)
-        Spacer(modifier = Modifier.height(14.dp))
-        MenuRow(index = 2, label = "Back", onClick = onBack)
+    BridgeScaffold(title = title) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)) {
+            BridgeRowTile(label = enableLabel, onClick = onEnable)
+            BridgeRowTile(label = "back", onClick = onBack)
+        }
     }
 }
 
@@ -811,34 +848,14 @@ fun ToolMenuScreen(
     onManage: () -> Unit,
     onOpenTool: (Tool) -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 32.dp),
-        verticalArrangement = Arrangement.Top,
-        horizontalAlignment = Alignment.Start
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        var rowIndex = 1
-        enabledTools.forEach { tool ->
-            MenuRow(index = rowIndex++, label = tool.title, onClick = { onOpenTool(tool) })
-            Spacer(modifier = Modifier.height(14.dp))
-        }
-
-        MenuRow(index = rowIndex++, label = manageLabel, onClick = onManage)
-        Spacer(modifier = Modifier.height(14.dp))
-        MenuRow(index = rowIndex, label = "Back", onClick = onBack)
-
-        if (!statusText.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(text = statusText, style = MaterialTheme.typography.bodyMedium)
+    BridgeScaffold(title = title, statusText = statusText) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)) {
+            enabledTools.forEach { tool ->
+                BridgeRowTile(label = tool.title, onClick = { onOpenTool(tool) })
+            }
+            BridgeRowTile(label = manageLabel, onClick = onManage)
+            BridgeRowTile(label = "back", onClick = onBack)
         }
     }
 }
@@ -852,76 +869,61 @@ fun TravelMenuScreen(
     onOpenTool: (Tool) -> Unit,
     onManage: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 32.dp),
-        verticalArrangement = Arrangement.Top,
-        horizontalAlignment = Alignment.Start
-    ) {
-        Text(
-            text = "Travel",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        var rowIndex = 1
-
-        
-        MenuRow(index = rowIndex++, label = "Maps", onClick = onOpenMaps)
-        Spacer(modifier = Modifier.height(14.dp))
-
-        
-        enabledTravel.forEach { tool ->
-            MenuRow(index = rowIndex++, label = tool.title, onClick = { onOpenTool(tool) })
-            Spacer(modifier = Modifier.height(14.dp))
-        }
-
-        
-        MenuRow(index = rowIndex++, label = "Manage travel apps", onClick = onManage)
-        Spacer(modifier = Modifier.height(14.dp))
-
-        MenuRow(index = rowIndex, label = "Back", onClick = onBack)
-
-        if (!statusText.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(text = statusText, style = MaterialTheme.typography.bodyMedium)
+    BridgeScaffold(title = "Travel", statusText = statusText) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)) {
+            BridgeRowTile(label = "maps", onClick = onOpenMaps)
+            enabledTravel.forEach { tool ->
+                BridgeRowTile(label = tool.title, onClick = { onOpenTool(tool) })
+            }
+            BridgeRowTile(label = "manage travel apps", onClick = onManage)
+            BridgeRowTile(label = "back", onClick = onBack)
         }
     }
 }
 
 @Composable
-private fun ToggleRow(
+private fun BridgeToggleRow(
     index: Int,
     label: String,
     checked: Boolean,
     onToggle: () -> Unit
 ) {
+    val shape = RoundedCornerShape(BRIDGE_TILE_CORNER)
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 64.dp)
+            .clip(shape)
+            .background(BRIDGE_TILE)
             .clickable { onToggle() }
-            .padding(vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = index.toString().padStart(2, '0'),
-            style = MaterialTheme.typography.bodyMedium
+            color = BRIDGE_MUTED,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium
         )
-
         Spacer(modifier = Modifier.width(14.dp))
-
         Text(
-            text = label,
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.weight(1f)
+            text = label.bridgeLower(),
+            color = BRIDGE_TEXT,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
-
         Checkbox(
             checked = checked,
-            onCheckedChange = { onToggle() }
+            onCheckedChange = { onToggle() },
+            colors = CheckboxDefaults.colors(
+                checkedColor = BRIDGE_TEXT,
+                uncheckedColor = BRIDGE_MUTED,
+                checkmarkColor = BRIDGE_BG
+            )
         )
     }
 }
@@ -935,94 +937,62 @@ fun ToolConfigScreen(
     prefsGetEnabled: (String) -> Boolean,
     prefsSetEnabled: (String, Boolean) -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 32.dp),
-        verticalArrangement = Arrangement.Top,
-        horizontalAlignment = Alignment.Start
-    ) {
+    BridgeScaffold(title = title) {
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = title,
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.SemiBold
+            text = note,
+            color = BRIDGE_MUTED,
+            fontSize = 13.sp,
+            modifier = Modifier.padding(bottom = 12.dp)
         )
-
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(text = note, style = MaterialTheme.typography.bodyMedium)
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        tools.forEachIndexed { index, tool ->
-            var enabled by remember(tool.key) { mutableStateOf(prefsGetEnabled(tool.key)) }
-
-            ToggleRow(
-                index = index + 1,
-                label = tool.title,
-                checked = enabled,
-                onToggle = {
-                    enabled = !enabled
-                    prefsSetEnabled(tool.key, enabled)
-                }
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)) {
+            tools.forEachIndexed { index, tool ->
+                var enabled by remember(tool.key) { mutableStateOf(prefsGetEnabled(tool.key)) }
+                BridgeToggleRow(
+                    index = index + 1,
+                    label = tool.title,
+                    checked = enabled,
+                    onToggle = {
+                        enabled = !enabled
+                        prefsSetEnabled(tool.key, enabled)
+                    }
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            BridgeRowTile(label = "back", onClick = onBack)
         }
-
-        Spacer(modifier = Modifier.height(10.dp))
-        MenuRow(index = tools.size + 1, label = "Back", onClick = onBack)
-    }
-}
-
-@Composable
-private fun MenuRow(index: Int, label: String, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = index.toString().padStart(2, '0'),
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Spacer(modifier = Modifier.width(14.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.titleLarge
-        )
     }
 }
 
 @Composable
 fun PlaceholderScreen(title: String, onBack: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Text(
-            text = "Coming soon",
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.clickable { onBack() }
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text(
-            text = "Tap to return",
-            style = MaterialTheme.typography.bodyMedium
-        )
+    BridgeScaffold(title = title) {
+        Spacer(modifier = Modifier.weight(1f))
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = title.bridgeLower(),
+                color = BRIDGE_TEXT,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "coming soon",
+                color = BRIDGE_MUTED,
+                fontSize = 15.sp,
+                modifier = Modifier.clickable { onBack() }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "tap to return",
+                color = BRIDGE_MUTED,
+                fontSize = 13.sp
+            )
+        }
+        Spacer(modifier = Modifier.weight(1f))
     }
 }
