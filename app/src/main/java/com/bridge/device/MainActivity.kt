@@ -10,14 +10,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import android.app.ActivityManager
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.graphics.Color
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import androidx.core.content.edit
 import androidx.activity.ComponentActivity
@@ -54,18 +53,11 @@ import com.bridge.device.ui.theme.BridgeTheme
 class MainActivity : ComponentActivity() {
 
     private lateinit var dpm: DevicePolicyManager
-    private lateinit var admin: ComponentName
-
-    // Prevent repeated/early LockTask calls
-    private var kioskStarted = false
-
-    private var policiesApplied = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         dpm = getSystemService(DevicePolicyManager::class.java)
-        admin = ComponentName(this, MyDeviceAdminReceiver::class.java)
 
         // Hard black immediately (only affects once our window exists)
         window.decorView.setBackgroundColor(Color.BLACK)
@@ -76,8 +68,7 @@ class MainActivity : ComponentActivity() {
         @Suppress("DEPRECATION")
         window.navigationBarColor = Color.BLACK
 
-        // ✅ Policies only (NO startLockTask here)
-        applyDeviceOwnerPolicies()
+        MyDeviceAdminReceiver.enforceDeviceOwnerPolicies(this)
 
         // Switch from Splash theme to real theme ASAP
         setTheme(R.style.Theme_Bridge)
@@ -113,10 +104,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (!policiesApplied) {
-            applyDeviceOwnerPolicies()
-            policiesApplied = true
-        }
+        MyDeviceAdminReceiver.enforceDeviceOwnerPolicies(this)
+        enterKioskWhenReady()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -124,73 +113,35 @@ class MainActivity : ComponentActivity() {
         if (hasFocus) enterKioskWhenReady()
     }
 
-    private fun applyDeviceOwnerPolicies() {
-        if (!dpm.isDeviceOwnerApp(packageName)) return
-        if (BuildConfig.DEBUG) {
-            try {
-                dpm.clearPackagePersistentPreferredActivities(admin, packageName)
-            } catch (_: Throwable) {}
-        }
-    
-        // Allow Bridge to be used for LockTask
-        try { dpm.setLockTaskPackages(admin, arrayOf(packageName)) } catch (_: Throwable) { return }
-    
-        // ✅ DO NOT set persistent HOME while debugging
-        if (!BuildConfig.DEBUG) {
-            try {
-                val filter = IntentFilter(Intent.ACTION_MAIN).apply {
-                    addCategory(Intent.CATEGORY_HOME)
-                    addCategory(Intent.CATEGORY_DEFAULT)
-                }
-                dpm.addPersistentPreferredActivity(
-                    admin,
-                    filter,
-                    ComponentName(this, MainActivity::class.java)
-                )
-            } catch (_: Throwable) {}
-        }
-    
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            try { dpm.setStatusBarDisabled(admin, true) } catch (_: Throwable) {}
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try { dpm.setKeyguardDisabled(admin, true) } catch (_: Throwable) {}
-        }
-    }
-
-    private fun clearPersistentHomeBinding() {
-        if (!dpm.isDeviceOwnerApp(packageName)) return
-        try {
-            dpm.clearPackagePersistentPreferredActivities(admin, packageName)
-        } catch (_: Throwable) {}
-    }
-
     private fun enterKioskWhenReady() {
         if (!dpm.isDeviceOwnerApp(packageName)) return
-        if (BuildConfig.DEBUG) return  
-        if (kioskStarted) return
+        if (BuildConfig.DEBUG) return
+        if (isInLockTaskMode()) return
     
         window.decorView.post { tryStartLockTaskWithRetry() }
     }
 
     private fun tryStartLockTaskWithRetry() {
-        if (kioskStarted) return
+        if (isInLockTaskMode()) return
 
         // Attempt now
         try {
             startLockTask()
-            kioskStarted = true
             return
         } catch (_: Throwable) {}
 
         // Retry once shortly (boot/home transitions can be racy)
         window.decorView.postDelayed({
-            if (kioskStarted) return@postDelayed
+            if (isInLockTaskMode()) return@postDelayed
             try {
                 startLockTask()
-                kioskStarted = true
             } catch (_: Throwable) {}
         }, 250)
+    }
+
+    private fun isInLockTaskMode(): Boolean {
+        val am = getSystemService(ActivityManager::class.java) ?: return false
+        return am.lockTaskModeState != ActivityManager.LOCK_TASK_MODE_NONE
     }
 }
 
