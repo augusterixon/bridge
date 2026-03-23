@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.os.Build
 import android.util.Log
 
 class MyDeviceAdminReceiver : DeviceAdminReceiver() {
@@ -16,13 +15,6 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
         super.onEnabled(context, intent)
         writeLog(context, "onEnabled fired")
         enforceDeviceOwnerPolicies(context)
-    }
-
-    @androidx.annotation.RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-    override fun onProvisioningFailed(context: Context, intent: Intent) {
-        super.onProvisioningFailed(context, intent)
-        val error = intent.getStringExtra("android.app.extra.PROVISIONING_ERROR_CODE")
-        writeLog(context, "PROVISIONING FAILED: $error — ${intent.extras?.keySet()?.map { "$it=${intent.extras?.get(it)}" }}")
     }
 
     override fun onProfileProvisioningComplete(context: Context, intent: Intent) {
