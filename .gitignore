@@ -47,4 +47,5 @@ __pycache__/
 *.pyc
 .env
 
-app/release/baselineProfiles/
+app/release/baselineProfiles
+keystore.properties
