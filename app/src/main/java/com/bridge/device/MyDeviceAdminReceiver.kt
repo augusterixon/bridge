@@ -18,12 +18,28 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
 
     override fun onProfileProvisioningComplete(context: Context, intent: Intent) {
         super.onProfileProvisioningComplete(context, intent)
-        enforceDeviceOwnerPolicies(context)
-        // Do NOT start MainActivity here. The Setup Wizard is still in the foreground
-        // during provisioning. Launching an activity interferes with the setup flow and
-        // causes "Couldn't set up your device. Contact your IT admin."
-        // After provisioning finishes, Android launches the HOME app automatically
-        // because addPersistentPreferredActivity binds HOME → Bridge.
+    
+        // Do NOT call enforceDeviceOwnerPolicies here — isDeviceOwnerApp may return
+        // false at this point in the provisioning flow, causing early exit.
+        // Heavy policy enforcement happens in onEnabled once Device Owner is confirmed.
+    
+        // Only do the minimum: bind HOME → Bridge so Android launches it after provisioning.
+        val dpm = context.getSystemService(DevicePolicyManager::class.java) ?: return
+        val admin = adminComponent(context)
+    
+        try {
+            dpm.clearPackagePersistentPreferredActivities(admin, context.packageName)
+            val filter = IntentFilter(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                addCategory(Intent.CATEGORY_DEFAULT)
+            }
+            dpm.addPersistentPreferredActivity(
+                admin, filter,
+                ComponentName(context, MainActivity::class.java)
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "onProfileProvisioningComplete HOME setup failed", e)
+        }
     }
 
     companion object {
