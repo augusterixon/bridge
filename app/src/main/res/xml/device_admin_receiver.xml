@@ -7,6 +7,5 @@
         <force-lock />
         <wipe-data />
         <disable-keyguard-features />
-        <disable-camera />
     </uses-policies>
 </device-admin>

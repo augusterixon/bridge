@@ -48,7 +48,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.Preview as CameraPreview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
 import com.bridge.device.ui.theme.BridgeTheme
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.common.InputImage
 
 class MainActivity : ComponentActivity() {
 
@@ -469,6 +483,13 @@ fun BridgeApp(
             prefsSetEnabled = prefsSetEnabled
         )
 
+        BridgeScreen.QR -> QRScannerScreen(
+            onBack = {
+                statusText = null
+                currentScreen = BridgeScreen.Home
+            }
+        )
+
         else -> PlaceholderScreen(
             title = currentScreen.name,
             onBack = { currentScreen = BridgeScreen.Home }
@@ -603,7 +624,8 @@ fun BridgeRowTile(
     hint: String? = null,
     onClick: () -> Unit
 ) {
-    var pressed by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
     val bg = if (pressed) BRIDGE_TILE_PRESSED else BRIDGE_TILE
     val shape = RoundedCornerShape(BRIDGE_TILE_CORNER)
     Box(
@@ -612,7 +634,7 @@ fun BridgeRowTile(
             .heightIn(min = 64.dp)
             .clip(shape)
             .background(bg)
-            .clickable(onClick = onClick, onClickLabel = label)
+            .clickable(interactionSource = interactionSource, indication = null, onClickLabel = label, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 16.dp),
         contentAlignment = Alignment.CenterStart
     ) {
@@ -747,7 +769,8 @@ private fun BridgeHomeTile(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    var pressed by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
     val bg = if (pressed) BRIDGE_TILE_PRESSED else BRIDGE_TILE
 
     Box(
@@ -755,8 +778,10 @@ private fun BridgeHomeTile(
             .clip(shape)
             .background(bg)
             .clickable(
-                onClick = onClick,
-                onClickLabel = label
+                interactionSource = interactionSource,
+                indication = null,
+                onClickLabel = label,
+                onClick = onClick
             )
             .padding(horizontal = 16.dp, vertical = 16.dp),
         contentAlignment = Alignment.CenterStart
@@ -944,5 +969,173 @@ fun PlaceholderScreen(title: String, onBack: () -> Unit) {
             )
         }
         Spacer(modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+fun QRScannerScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    var scannedValue by remember { mutableStateOf<String?>(null) }
+    val hasCameraPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+        context, android.Manifest.permission.CAMERA
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    if (!hasCameraPermission) {
+        BridgeScaffold(title = "QR") {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "camera permission not available",
+                color = BRIDGE_MUTED,
+                fontSize = 13.sp
+            )
+            Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
+            BridgeRowTile(label = "back", onClick = onBack)
+        }
+        return
+    }
+
+    if (scannedValue != null) {
+        QRResultScreen(
+            value = scannedValue!!,
+            onScanAgain = { scannedValue = null },
+            onBack = onBack
+        )
+    } else {
+        BridgeScaffold(title = "QR") {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "point camera at a qr code",
+                color = BRIDGE_MUTED,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clip(RoundedCornerShape(BRIDGE_TILE_CORNER))
+            ) {
+                QRCameraPreview(onBarcodeDetected = { value -> scannedValue = value })
+            }
+            Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
+            BridgeRowTile(label = "back", onClick = onBack)
+        }
+    }
+}
+
+@OptIn(ExperimentalGetImage::class)
+@Composable
+private fun QRCameraPreview(onBarcodeDetected: (String) -> Unit) {
+    val context = LocalContext.current
+    @Suppress("DEPRECATION")
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    val previewView = remember { PreviewView(context) }
+    var boundProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+        cameraProviderFuture.addListener({
+            val cameraProvider = cameraProviderFuture.get()
+            boundProvider = cameraProvider
+
+            val preview = CameraPreview.Builder().build().apply {
+                surfaceProvider = previewView.surfaceProvider
+            }
+
+            val scanner = BarcodeScanning.getClient(
+                BarcodeScannerOptions.Builder()
+                    .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                    .build()
+            )
+
+            val analysis = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+                .apply {
+                    setAnalyzer(
+                        androidx.core.content.ContextCompat.getMainExecutor(context)
+                    ) { imageProxy ->
+                        val mediaImage = imageProxy.image
+                        if (mediaImage != null) {
+                            val inputImage = InputImage.fromMediaImage(
+                                mediaImage, imageProxy.imageInfo.rotationDegrees
+                            )
+                            scanner.process(inputImage)
+                                .addOnSuccessListener { barcodes ->
+                                    barcodes.firstOrNull()?.rawValue?.let(onBarcodeDetected)
+                                }
+                                .addOnCompleteListener { imageProxy.close() }
+                        } else {
+                            imageProxy.close()
+                        }
+                    }
+                }
+
+            try {
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(
+                    lifecycleOwner,
+                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    preview,
+                    analysis
+                )
+            } catch (_: Exception) { }
+        }, androidx.core.content.ContextCompat.getMainExecutor(context))
+
+        onDispose {
+            boundProvider?.unbindAll()
+        }
+    }
+
+    AndroidView(
+        factory = { previewView },
+        modifier = Modifier.fillMaxSize()
+    )
+}
+
+@Composable
+private fun QRResultScreen(
+    value: String,
+    onScanAgain: () -> Unit,
+    onBack: () -> Unit
+) {
+    val context = LocalContext.current
+    val isUrl = value.startsWith("http://") || value.startsWith("https://")
+
+    BridgeScaffold(title = "QR Result") {
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(BRIDGE_TILE_CORNER))
+                .background(BRIDGE_TILE)
+                .padding(16.dp)
+        ) {
+            Text(
+                text = value,
+                color = BRIDGE_TEXT,
+                fontSize = 14.sp,
+                maxLines = 10,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
+
+        if (isUrl) {
+            BridgeRowTile(label = "open link", onClick = {
+                try {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(value)).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                    )
+                } catch (_: Exception) { }
+            })
+        }
+
+        BridgeRowTile(label = "scan again", onClick = onScanAgain)
+        BridgeRowTile(label = "back", onClick = onBack)
     }
 }
