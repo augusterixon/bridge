@@ -18,11 +18,15 @@ import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.core.content.edit
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -37,10 +41,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -58,6 +65,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import com.bridge.device.ui.theme.BridgeColors
 import com.bridge.device.ui.theme.BridgeTheme
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
@@ -88,17 +96,30 @@ class MainActivity : ComponentActivity() {
         setTheme(R.style.Theme_Bridge)
 
         enableEdgeToEdge()
+        applyImmersiveMode()
 
         setContent {
             BridgeTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = BRIDGE_BG
+                    color = BridgeColors.background
                 ) {
                     BridgeApp(
                         onOpenMaps = { openMapsNavigation(activity = this@MainActivity) },
-                        onOpenConnectivity = { startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) },
-                        onOpenBluetooth = { startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)) },
+                        onOpenConnectivity = {
+                            try {
+                                startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS))
+                            } catch (e: Exception) {
+                                Log.w("BridgeApp", "Failed to launch: $e")
+                            }
+                        },
+                        onOpenBluetooth = {
+                            try {
+                                startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
+                            } catch (e: Exception) {
+                                Log.w("BridgeApp", "Failed to launch: $e")
+                            }
+                        },
                         onOpenPhone = { openDialer(this@MainActivity) },
                         onOpenMessages = { openSms(this@MainActivity) },
                         onTryLaunchPackage = { pkg -> tryLaunchPackage(this@MainActivity, pkg) },
@@ -119,12 +140,38 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         MyDeviceAdminReceiver.enforceDeviceOwnerPolicies(this)
+        applyImmersiveMode()
         enterKioskWhenReady()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) enterKioskWhenReady()
+        if (hasFocus) {
+            // Re-apply immersive mode every time the window regains focus.
+            // This is critical after returning from external apps (WhatsApp,
+            // Maps, etc.) which may have caused the system UI to reappear.
+            applyImmersiveMode()
+            enterKioskWhenReady()
+        }
+    }
+
+    /**
+     * Hides status bar + navigation bar and sets transient-on-swipe behavior.
+     * Called on every resume and focus change to ensure the system UI never
+     * persists after returning from external apps.
+     *
+     * Uses WindowInsetsControllerCompat for backwards compatibility (minSdk 29).
+     * LockTask mode handles the actual gesture blocking at the system level;
+     * this just ensures the bars stay hidden visually.
+     */
+    private fun applyImmersiveMode() {
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.hide(
+            WindowInsetsCompat.Type.statusBars() or
+                WindowInsetsCompat.Type.navigationBars()
+        )
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     }
 
     private fun enterKioskWhenReady() {
@@ -158,23 +205,6 @@ class MainActivity : ComponentActivity() {
         return am.lockTaskModeState != ActivityManager.LOCK_TASK_MODE_NONE
     }
 }
-
-/**
- * Home menu base items (always shown).
- * Enabled utility tool rows will be injected under "Utility".
- */
-private val baseMenuItems = listOf(
-    "Library",
-    "Phone",
-    "Messages",
-    "Travel",
-    "QR",
-    "Auth",
-    "Utility",
-    "Connectivity",
-    "Bluetooth",
-    "Exit Bridge"
-)
 
 /**
  * Auth tools we support (curated, utilitarian).
@@ -270,13 +300,20 @@ enum class BridgeScreen {
 
     Connectivity,
     Bluetooth,
-    Exit
+    Settings
 }
 
 private fun deviceAdminComponent(context: Context): ComponentName =
     ComponentName(context, MyDeviceAdminReceiver::class.java)
 
 
+// TODO: When Bridge launches external apps (WhatsApp, Maps, Spotify, etc.),
+// the status bar and navigation bar may reappear inside those apps. This is
+// a known limitation of LockTask mode — the immersive mode flags are per-window
+// and external apps control their own system UI visibility. Bridge re-applies
+// immersive mode in onWindowFocusChanged when the user returns, so the bars
+// disappear again immediately. A future fix could use an AccessibilityService
+// to force immersive mode system-wide, but that requires additional provisioning.
 private fun tryLaunchPackage(activity: ComponentActivity, pkg: String): Boolean {
     val intent = activity.packageManager.getLaunchIntentForPackage(pkg) ?: return false
     activity.startActivity(intent)
@@ -284,14 +321,22 @@ private fun tryLaunchPackage(activity: ComponentActivity, pkg: String): Boolean 
 }
 
 private fun openDialer(activity: ComponentActivity) {
-    activity.startActivity(Intent(Intent.ACTION_DIAL))
+    try {
+        activity.startActivity(Intent(Intent.ACTION_DIAL))
+    } catch (e: Exception) {
+        Log.w("BridgeApp", "Failed to launch: $e")
+    }
 }
 
 private fun openSms(activity: ComponentActivity) {
-    val intent = Intent(Intent.ACTION_VIEW).apply {
-        data = Uri.parse("sms:")
+    try {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            data = Uri.parse("sms:")
+        }
+        activity.startActivity(intent)
+    } catch (e: Exception) {
+        Log.w("BridgeApp", "Failed to launch: $e")
     }
-    activity.startActivity(intent)
 }
 
 private fun openMapsNavigation(activity: ComponentActivity) {
@@ -300,10 +345,14 @@ private fun openMapsNavigation(activity: ComponentActivity) {
         setPackage("com.google.android.apps.maps")
     }
 
-    if (intent.resolveActivity(activity.packageManager) != null) {
-        activity.startActivity(intent)
-    } else {
-        activity.startActivity(Intent(Intent.ACTION_VIEW, uri))
+    try {
+        if (intent.resolveActivity(activity.packageManager) != null) {
+            activity.startActivity(intent)
+        } else {
+            activity.startActivity(Intent(Intent.ACTION_VIEW, uri))
+        }
+    } catch (e: Exception) {
+        Log.w("BridgeApp", "Failed to launch: $e")
     }
 }
 
@@ -329,39 +378,41 @@ fun BridgeApp(
     fun anyUtilityEnabled(): Boolean = enabledUtility().isNotEmpty()
 
     when (currentScreen) {
-        BridgeScreen.Home -> BridgeHomeStack(
-            enabledUtility = enabledUtility(),
-            statusText = statusText,
-            onClearStatus = { statusText = null },
-            onSelect = { screen ->
-                statusText = null
-                currentScreen = screen
-            },
-            onOpenConnectivity = onOpenConnectivity,
-            onOpenBluetooth = onOpenBluetooth,
-            onOpenPhone = onOpenPhone,
-            onOpenMessages = onOpenMessages,
-            onOpenEnabledUtility = { tool ->
-                val ok = onTryLaunchPackage(tool.pkg)
-                statusText = if (ok) null else "${tool.title} not installed"
-            }
-        )
+        BridgeScreen.Home -> {
+            BackHandler(enabled = true) { }
+            BridgeHomeScreen(
+                onNavigate = { screen ->
+                    statusText = null
+                    currentScreen = screen
+                }
+            )
+        }
 
         
-        BridgeScreen.AuthFirstRun -> FirstRunScreen(
-            title = "Auth",
-            enableLabel = "Enable auth apps",
-            onEnable = {
-                statusText = null
-                currentScreen = BridgeScreen.AuthConfig
-            },
-            onBack = {
+        BridgeScreen.AuthFirstRun -> {
+            BackHandler {
                 statusText = null
                 currentScreen = BridgeScreen.Home
             }
-        )
+            FirstRunScreen(
+                title = "Auth",
+                enableLabel = "Enable auth apps",
+                onEnable = {
+                    statusText = null
+                    currentScreen = BridgeScreen.AuthConfig
+                },
+                onBack = {
+                    statusText = null
+                    currentScreen = BridgeScreen.Home
+                }
+            )
+        }
 
         BridgeScreen.Auth -> {
+            BackHandler {
+                statusText = null
+                currentScreen = BridgeScreen.Home
+            }
             if (!anyAuthEnabled()) {
                 currentScreen = BridgeScreen.AuthFirstRun
             } else {
@@ -386,33 +437,49 @@ fun BridgeApp(
             }
         }
 
-        BridgeScreen.AuthConfig -> ToolConfigScreen(
-            title = "Enable Auth Apps",
-            note = "Toggle which auth tools appear inside Bridge.",
-            tools = authTools,
-            onBack = {
+        BridgeScreen.AuthConfig -> {
+            BackHandler {
                 statusText = null
                 currentScreen = BridgeScreen.Auth
-            },
-            prefsGetEnabled = prefsGetEnabled,
-            prefsSetEnabled = prefsSetEnabled
-        )
+            }
+            ToolConfigScreen(
+                title = "Enable Auth Apps",
+                note = "Toggle which auth tools appear inside Bridge.",
+                tools = authTools,
+                onBack = {
+                    statusText = null
+                    currentScreen = BridgeScreen.Auth
+                },
+                prefsGetEnabled = prefsGetEnabled,
+                prefsSetEnabled = prefsSetEnabled
+            )
+        }
 
         
-        BridgeScreen.UtilityFirstRun -> FirstRunScreen(
-            title = "Utility",
-            enableLabel = "Enable utility apps",
-            onEnable = {
-                statusText = null
-                currentScreen = BridgeScreen.UtilityConfig
-            },
-            onBack = {
+        BridgeScreen.UtilityFirstRun -> {
+            BackHandler {
                 statusText = null
                 currentScreen = BridgeScreen.Home
             }
-        )
+            FirstRunScreen(
+                title = "Utility",
+                enableLabel = "Enable utility apps",
+                onEnable = {
+                    statusText = null
+                    currentScreen = BridgeScreen.UtilityConfig
+                },
+                onBack = {
+                    statusText = null
+                    currentScreen = BridgeScreen.Home
+                }
+            )
+        }
 
         BridgeScreen.Utility -> {
+            BackHandler {
+                statusText = null
+                currentScreen = BridgeScreen.Home
+            }
             if (!anyUtilityEnabled()) {
                 currentScreen = BridgeScreen.UtilityFirstRun
             } else {
@@ -437,114 +504,102 @@ fun BridgeApp(
             }
         }
 
-        BridgeScreen.UtilityConfig -> ToolConfigScreen(
-            title = "Enable Utility Apps",
-            note = "Toggle which utility apps appear inside Bridge.",
-            tools = utilityTools,
-            onBack = {
+        BridgeScreen.UtilityConfig -> {
+            BackHandler {
                 statusText = null
                 currentScreen = BridgeScreen.Utility
-            },
-            prefsGetEnabled = prefsGetEnabled,
-            prefsSetEnabled = prefsSetEnabled
-        )
+            }
+            ToolConfigScreen(
+                title = "Enable Utility Apps",
+                note = "Toggle which utility apps appear inside Bridge.",
+                tools = utilityTools,
+                onBack = {
+                    statusText = null
+                    currentScreen = BridgeScreen.Utility
+                },
+                prefsGetEnabled = prefsGetEnabled,
+                prefsSetEnabled = prefsSetEnabled
+            )
+        }
 
         
-        BridgeScreen.Travel -> TravelMenuScreen(
-            enabledTravel = enabledTravel(),
-            statusText = statusText,
-            onBack = {
+        BridgeScreen.Travel -> {
+            BackHandler {
                 statusText = null
                 currentScreen = BridgeScreen.Home
-            },
-            onOpenMaps = {
-                statusText = null
-                onOpenMaps()
-            },
-            onOpenTool = { tool ->
-                val ok = onTryLaunchPackage(tool.pkg)
-                statusText = if (ok) null else "${tool.title} not installed"
-            },
-            onManage = {
-                statusText = null
-                currentScreen = BridgeScreen.TravelConfig
             }
-        )
+            TravelMenuScreen(
+                enabledTravel = enabledTravel(),
+                statusText = statusText,
+                onBack = {
+                    statusText = null
+                    currentScreen = BridgeScreen.Home
+                },
+                onOpenMaps = {
+                    statusText = null
+                    onOpenMaps()
+                },
+                onOpenTool = { tool ->
+                    val ok = onTryLaunchPackage(tool.pkg)
+                    statusText = if (ok) null else "${tool.title} not installed"
+                },
+                onManage = {
+                    statusText = null
+                    currentScreen = BridgeScreen.TravelConfig
+                }
+            )
+        }
 
-        BridgeScreen.TravelConfig -> ToolConfigScreen(
-            title = "Enable Travel Apps",
-            note = "Toggle which travel apps appear inside Bridge.",
-            tools = travelTools,
-            onBack = {
+        BridgeScreen.TravelConfig -> {
+            BackHandler {
                 statusText = null
                 currentScreen = BridgeScreen.Travel
-            },
-            prefsGetEnabled = prefsGetEnabled,
-            prefsSetEnabled = prefsSetEnabled
-        )
+            }
+            ToolConfigScreen(
+                title = "Enable Travel Apps",
+                note = "Toggle which travel apps appear inside Bridge.",
+                tools = travelTools,
+                onBack = {
+                    statusText = null
+                    currentScreen = BridgeScreen.Travel
+                },
+                prefsGetEnabled = prefsGetEnabled,
+                prefsSetEnabled = prefsSetEnabled
+            )
+        }
 
-        BridgeScreen.QR -> QRScannerScreen(
-            onBack = {
+        BridgeScreen.QR -> {
+            BackHandler {
                 statusText = null
                 currentScreen = BridgeScreen.Home
             }
-        )
-
-        else -> PlaceholderScreen(
-            title = currentScreen.name,
-            onBack = { currentScreen = BridgeScreen.Home }
-        )
-    }
-}
-
-@Composable
-fun BridgeHome(
-    enabledUtility: List<Tool>,
-    statusText: String?,
-    onClearStatus: () -> Unit,
-    onSelect: (BridgeScreen) -> Unit,
-    onOpenConnectivity: () -> Unit,
-    onOpenBluetooth: () -> Unit,
-    onOpenPhone: () -> Unit,
-    onOpenMessages: () -> Unit,
-    onOpenEnabledUtility: (Tool) -> Unit
-) {
-    val rows = buildList {
-        baseMenuItems.forEach { item ->
-            add(item)
-            if (item == "Utility") {
-                enabledUtility.forEach { add(it.title) }
-            }
+            QRScannerScreen(
+                onBack = {
+                    statusText = null
+                    currentScreen = BridgeScreen.Home
+                }
+            )
         }
-    }
-    BridgeScaffold(title = "bridge", statusText = statusText) {
-        Spacer(modifier = Modifier.height(8.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)) {
-            rows.forEach { label ->
-                BridgeRowTile(
-                    label = label,
-                    onClick = {
-                        onClearStatus()
-                        val enabled = enabledUtility.firstOrNull { it.title == label }
-                        if (enabled != null) {
-                            onOpenEnabledUtility(enabled)
-                            return@BridgeRowTile
-                        }
-                        when (label) {
-                            "Library" -> onSelect(BridgeScreen.Library)
-                            "Phone" -> onOpenPhone()
-                            "Messages" -> onOpenMessages()
-                            "Travel" -> onSelect(BridgeScreen.Travel)
-                            "QR" -> onSelect(BridgeScreen.QR)
-                            "Auth" -> onSelect(BridgeScreen.Auth)
-                            "Utility" -> onSelect(BridgeScreen.Utility)
-                            "Connectivity" -> onOpenConnectivity()
-                            "Bluetooth" -> onOpenBluetooth()
-                            "Exit Bridge" -> onSelect(BridgeScreen.Exit)
-                        }
-                    }
-                )
+
+        BridgeScreen.Settings -> {
+            BackHandler {
+                statusText = null
+                currentScreen = BridgeScreen.Home
             }
+            BridgeSettingsScreen(
+                onBack = {
+                    statusText = null
+                    currentScreen = BridgeScreen.Home
+                }
+            )
+        }
+
+        else -> {
+            BackHandler { currentScreen = BridgeScreen.Home }
+            PlaceholderScreen(
+                title = currentScreen.name,
+                onBack = { currentScreen = BridgeScreen.Home }
+            )
         }
     }
 }
@@ -660,140 +715,6 @@ fun BridgeRowTile(
                 )
             }
         }
-    }
-}
-
-@Composable
-fun BridgeHomeStack(
-    enabledUtility: List<Tool>,
-    statusText: String?,
-    onClearStatus: () -> Unit,
-    onSelect: (BridgeScreen) -> Unit,
-    onOpenConnectivity: () -> Unit,
-    onOpenBluetooth: () -> Unit,
-    onOpenPhone: () -> Unit,
-    onOpenMessages: () -> Unit,
-    onOpenEnabledUtility: (Tool) -> Unit
-) {
-    val tiles: List<Pair<String, () -> Unit>> = listOf(
-        "phone" to { onClearStatus(); onOpenPhone() },
-        "messages" to { onClearStatus(); onOpenMessages() },
-        "travel" to { onClearStatus(); onSelect(BridgeScreen.Travel) },
-        "auth" to { onClearStatus(); onSelect(BridgeScreen.Auth) },
-        "utility" to { onClearStatus(); onSelect(BridgeScreen.Utility) },
-        "connectivity" to { onClearStatus(); onOpenConnectivity() },
-        "bluetooth" to { onClearStatus(); onOpenBluetooth() },
-        "library" to { onClearStatus(); onSelect(BridgeScreen.Library) },
-    )
-
-    // Subtle time. Updates every 30s.
-    var nowText by remember { mutableStateOf(LocalTime.now().format(timeFmt)) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            nowText = LocalTime.now().format(timeFmt)
-            kotlinx.coroutines.delay(30_000)
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BRIDGE_BG)
-            .padding(horizontal = 18.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.Top,
-        horizontalAlignment = Alignment.Start
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "bridge",
-                color = BRIDGE_TEXT,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            Text(
-                text = nowText,
-                color = BRIDGE_MUTED,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Normal
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        val shape = RoundedCornerShape(BRIDGE_TILE_CORNER)
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)
-        ) {
-            tiles.forEach { (label, action) ->
-                BridgeHomeTile(
-                    label = label.bridgeLower(),
-                    shape = shape,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .heightIn(min = 56.dp),
-                    onClick = action
-                )
-            }
-        }
-
-        // Status line, calm + small
-        if (!statusText.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = statusText,
-                color = BRIDGE_MUTED,
-                fontSize = 13.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        // Optional hidden "exit" tile later (do NOT show for now)
-        // We'll implement a long-press gesture or admin-only action later.
-    }
-}
-
-@Composable
-private fun BridgeHomeTile(
-    label: String,
-    shape: RoundedCornerShape,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val bg = if (pressed) BRIDGE_TILE_PRESSED else BRIDGE_TILE
-
-    Box(
-        modifier = modifier
-            .clip(shape)
-            .background(bg)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClickLabel = label,
-                onClick = onClick
-            )
-            .padding(horizontal = 16.dp, vertical = 16.dp),
-        contentAlignment = Alignment.CenterStart
-    ) {
-        Text(
-            text = label,
-            color = BRIDGE_TEXT,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
     }
 }
 
@@ -936,6 +857,118 @@ fun ToolConfigScreen(
             Spacer(modifier = Modifier.height(8.dp))
             BridgeRowTile(label = "back", onClick = onBack)
         }
+    }
+}
+
+/**
+ * Bridge settings screen — provides device controls that are otherwise
+ * inaccessible because swipe-down (notifications/quick settings) is blocked.
+ * Currently contains a brightness slider. Wired to BridgeScreen.Settings.
+ */
+@Composable
+fun BridgeSettingsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val canWriteSettings = remember { android.provider.Settings.System.canWrite(context) }
+
+    // Read the current system brightness (0-255). Falls back to 128 if unreadable.
+    var brightness by remember {
+        mutableIntStateOf(
+            try {
+                android.provider.Settings.System.getInt(
+                    context.contentResolver,
+                    android.provider.Settings.System.SCREEN_BRIGHTNESS
+                )
+            } catch (_: Exception) {
+                128
+            }
+        )
+    }
+
+    BridgeScaffold(title = "settings") {
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // -- Brightness section -----------------------------------------------
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "brightness",
+                color = BRIDGE_TEXT,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = "${brightness * 100 / 255}%",
+                color = BRIDGE_MUTED,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Normal
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Slider(
+            value = brightness.toFloat(),
+            onValueChange = { newValue ->
+                brightness = newValue.toInt()
+                applyBrightness(context, newValue.toInt(), canWriteSettings)
+            },
+            valueRange = 1f..255f,
+            colors = SliderDefaults.colors(
+                thumbColor = BRIDGE_TEXT,
+                activeTrackColor = BRIDGE_MUTED,
+                inactiveTrackColor = BRIDGE_TILE
+            )
+        )
+
+        if (!canWriteSettings) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "system brightness unavailable — using window-level",
+                color = BRIDGE_MUTED,
+                fontSize = 11.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        BridgeRowTile(label = "back", onClick = onBack)
+    }
+}
+
+/**
+ * Applies brightness at both the system level (if WRITE_SETTINGS is granted)
+ * and the window level (always works, immediate visual feedback).
+ * Clamps to [1, 255] to prevent a completely black screen.
+ */
+private fun applyBrightness(context: Context, value: Int, canWriteSystem: Boolean) {
+    val clamped = value.coerceIn(1, 255)
+
+    if (canWriteSystem) {
+        try {
+            android.provider.Settings.System.putInt(
+                context.contentResolver,
+                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
+                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+            )
+            android.provider.Settings.System.putInt(
+                context.contentResolver,
+                android.provider.Settings.System.SCREEN_BRIGHTNESS,
+                clamped
+            )
+        } catch (_: Exception) { }
+    }
+
+    // Window-level brightness — always applied for immediate feedback.
+    // Only affects Bridge's own window; external apps use system brightness.
+    val activity = context as? ComponentActivity
+    activity?.window?.let { win ->
+        val params = win.attributes
+        params.screenBrightness = clamped / 255f
+        win.attributes = params
     }
 }
 
@@ -1099,7 +1132,6 @@ private fun QRResultScreen(
     onScanAgain: () -> Unit,
     onBack: () -> Unit
 ) {
-    val context = LocalContext.current
     val isUrl = value.startsWith("http://") || value.startsWith("https://")
 
     BridgeScaffold(title = "QR Result") {
@@ -1112,28 +1144,26 @@ private fun QRResultScreen(
                 .background(BRIDGE_TILE)
                 .padding(16.dp)
         ) {
-            Text(
-                text = value,
-                color = BRIDGE_TEXT,
-                fontSize = 14.sp,
-                maxLines = 10,
-                overflow = TextOverflow.Ellipsis
-            )
+            Column {
+                Text(
+                    text = value,
+                    color = BRIDGE_TEXT,
+                    fontSize = 14.sp,
+                    maxLines = 10,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (isUrl) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "url detected",
+                        color = BRIDGE_MUTED,
+                        fontSize = 12.sp
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
-
-        if (isUrl) {
-            BridgeRowTile(label = "open link", onClick = {
-                try {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse(value)).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                    )
-                } catch (_: Exception) { }
-            })
-        }
 
         BridgeRowTile(label = "scan again", onClick = onScanAgain)
         BridgeRowTile(label = "back", onClick = onBack)
