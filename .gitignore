@@ -47,5 +47,20 @@ __pycache__/
 *.pyc
 .env
 
-app/release/baselineProfiles
+# ===== Signing =====
 keystore.properties
+
+# ===== Build artifacts =====
+app/release/baselineProfiles/
+app/release/output-metadata.json
+app/release/*.apk
+app/release/*.aab
+
+# ===== Profiling =====
+*.hprof
+
+# ===== Navigation editor =====
+.navigation/
+
+# ===== Test results =====
+test-results/
