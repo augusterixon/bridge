@@ -253,6 +253,76 @@ private const val PKG_BOLT = "ee.mtakso.client"
 /** prefs */
 private const val PREFS_NAME = "bridge_prefs"
 
+private const val KEY_DEFAULT_MESSAGES_PKG = "default_messages_pkg"
+private const val KEY_DEFAULT_MUSIC_PKG = "default_music_pkg"
+private const val KEY_DEFAULT_MAPS_PKG = "default_maps_pkg"
+
+data class DefaultApps(
+    val messagesPackage: String?,
+    val musicPackage: String?,
+    val mapsPackage: String?
+)
+
+private fun loadDefaultApps(context: Context): DefaultApps {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    return DefaultApps(
+        messagesPackage = prefs.getString(KEY_DEFAULT_MESSAGES_PKG, null),
+        musicPackage = prefs.getString(KEY_DEFAULT_MUSIC_PKG, null),
+        mapsPackage = prefs.getString(KEY_DEFAULT_MAPS_PKG, null)
+    )
+}
+
+private fun saveDefaultApps(context: Context, apps: DefaultApps) {
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
+        if (apps.messagesPackage != null) putString(KEY_DEFAULT_MESSAGES_PKG, apps.messagesPackage)
+        else remove(KEY_DEFAULT_MESSAGES_PKG)
+        if (apps.musicPackage != null) putString(KEY_DEFAULT_MUSIC_PKG, apps.musicPackage)
+        else remove(KEY_DEFAULT_MUSIC_PKG)
+        if (apps.mapsPackage != null) putString(KEY_DEFAULT_MAPS_PKG, apps.mapsPackage)
+        else remove(KEY_DEFAULT_MAPS_PKG)
+    }
+}
+
+private val MESSAGES_CANDIDATES = listOf(
+    "com.whatsapp", "com.whatsapp.w4b",
+    "org.thoughtcrime.securesms", "org.telegram.messenger",
+    "org.telegram.messenger.web", "com.google.android.apps.messaging",
+    "com.android.mms", "org.fossify.messages"
+)
+
+private val MUSIC_CANDIDATES = listOf(
+    "com.spotify.music", "com.soundcloud.android"
+)
+
+private val MAPS_CANDIDATES = listOf(
+    "com.google.android.apps.maps"
+)
+
+private fun isPackageInstalled(context: Context, pkg: String): Boolean {
+    return try {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            context.packageManager.getPackageInfo(
+                pkg, android.content.pm.PackageManager.PackageInfoFlags.of(0)
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageInfo(pkg, 0)
+        }
+        true
+    } catch (_: Exception) {
+        false
+    }
+}
+
+private fun getAppLabel(context: Context, pkg: String): String {
+    return try {
+        @Suppress("DEPRECATION")
+        val appInfo = context.packageManager.getApplicationInfo(pkg, 0)
+        context.packageManager.getApplicationLabel(appInfo).toString()
+    } catch (_: Exception) {
+        pkg
+    }
+}
 
 private const val KEY_ENABLE_BANKID = "enable_bankid"
 private const val KEY_ENABLE_MS_AUTH = "enable_ms_auth"
@@ -324,7 +394,11 @@ enum class BridgeScreen {
 
     LibraryPhotos,
     LibraryVideos,
-    LibraryDocuments
+    LibraryDocuments,
+
+    DefaultMessagesPicker,
+    DefaultMusicPicker,
+    DefaultMapsPicker
 }
 
 private fun deviceAdminComponent(context: Context): ComponentName =
@@ -391,8 +465,10 @@ fun BridgeApp(
     prefsGetEnabled: (String) -> Boolean,
     prefsSetEnabled: (String, Boolean) -> Unit
 ) {
+    val context = LocalContext.current
     var currentScreen by remember { mutableStateOf(BridgeScreen.Home) }
     var statusText by remember { mutableStateOf<String?>(null) }
+    var defaultApps by remember { mutableStateOf(loadDefaultApps(context)) }
 
     fun enabledAuth(): List<Tool> = authTools.filter { prefsGetEnabled(it.key) }
     fun enabledUtility(): List<Tool> = utilityTools.filter { prefsGetEnabled(it.key) }
@@ -408,7 +484,8 @@ fun BridgeApp(
                 onNavigate = { screen ->
                     statusText = null
                     currentScreen = screen
-                }
+                },
+                defaultApps = defaultApps
             )
         }
 
@@ -611,9 +688,22 @@ fun BridgeApp(
                 currentScreen = BridgeScreen.Home
             }
             BridgeSettingsScreen(
+                defaultApps = defaultApps,
                 onBack = {
                     statusText = null
                     currentScreen = BridgeScreen.Home
+                },
+                onPickMessages = {
+                    statusText = null
+                    currentScreen = BridgeScreen.DefaultMessagesPicker
+                },
+                onPickMusic = {
+                    statusText = null
+                    currentScreen = BridgeScreen.DefaultMusicPicker
+                },
+                onPickMaps = {
+                    statusText = null
+                    currentScreen = BridgeScreen.DefaultMapsPicker
                 }
             )
         }
@@ -678,6 +768,72 @@ fun BridgeApp(
                 onBack = {
                     statusText = null
                     currentScreen = BridgeScreen.Library
+                }
+            )
+        }
+
+        BridgeScreen.DefaultMessagesPicker -> {
+            BackHandler {
+                statusText = null
+                currentScreen = BridgeScreen.Settings
+            }
+            DefaultAppPickerScreen(
+                title = "messages app",
+                candidates = MESSAGES_CANDIDATES,
+                currentPkg = defaultApps.messagesPackage,
+                onSelect = { pkg ->
+                    defaultApps = defaultApps.copy(messagesPackage = pkg)
+                    saveDefaultApps(context, defaultApps)
+                    statusText = null
+                    currentScreen = BridgeScreen.Settings
+                },
+                onBack = {
+                    statusText = null
+                    currentScreen = BridgeScreen.Settings
+                }
+            )
+        }
+
+        BridgeScreen.DefaultMusicPicker -> {
+            BackHandler {
+                statusText = null
+                currentScreen = BridgeScreen.Settings
+            }
+            DefaultAppPickerScreen(
+                title = "music app",
+                candidates = MUSIC_CANDIDATES,
+                currentPkg = defaultApps.musicPackage,
+                onSelect = { pkg ->
+                    defaultApps = defaultApps.copy(musicPackage = pkg)
+                    saveDefaultApps(context, defaultApps)
+                    statusText = null
+                    currentScreen = BridgeScreen.Settings
+                },
+                onBack = {
+                    statusText = null
+                    currentScreen = BridgeScreen.Settings
+                }
+            )
+        }
+
+        BridgeScreen.DefaultMapsPicker -> {
+            BackHandler {
+                statusText = null
+                currentScreen = BridgeScreen.Settings
+            }
+            DefaultAppPickerScreen(
+                title = "maps app",
+                candidates = MAPS_CANDIDATES,
+                currentPkg = defaultApps.mapsPackage,
+                onSelect = { pkg ->
+                    defaultApps = defaultApps.copy(mapsPackage = pkg)
+                    saveDefaultApps(context, defaultApps)
+                    statusText = null
+                    currentScreen = BridgeScreen.Settings
+                },
+                onBack = {
+                    statusText = null
+                    currentScreen = BridgeScreen.Settings
                 }
             )
         }
@@ -954,7 +1110,13 @@ fun ToolConfigScreen(
  * Currently contains a brightness slider. Wired to BridgeScreen.Settings.
  */
 @Composable
-fun BridgeSettingsScreen(onBack: () -> Unit) {
+fun BridgeSettingsScreen(
+    defaultApps: DefaultApps,
+    onBack: () -> Unit,
+    onPickMessages: () -> Unit,
+    onPickMusic: () -> Unit,
+    onPickMaps: () -> Unit,
+) {
     val context = LocalContext.current
     val prefs = remember {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -1016,6 +1178,26 @@ fun BridgeSettingsScreen(onBack: () -> Unit) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        Column(verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)) {
+            BridgeRowTile(
+                label = "messages app",
+                hint = defaultApps.messagesPackage?.let { getAppLabel(context, it) } ?: "not set",
+                onClick = onPickMessages
+            )
+            BridgeRowTile(
+                label = "music app",
+                hint = defaultApps.musicPackage?.let { getAppLabel(context, it) } ?: "not set",
+                onClick = onPickMusic
+            )
+            BridgeRowTile(
+                label = "maps app",
+                hint = defaultApps.mapsPackage?.let { getAppLabel(context, it) } ?: "not set",
+                onClick = onPickMaps
+            )
+        }
+
+        Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
+
         BridgeRowTile(label = "back", onClick = onBack)
     }
 }
@@ -1047,6 +1229,41 @@ private fun applyBrightness(context: Context, value: Int) {
         val params = win.attributes
         params.screenBrightness = clamped / 255f
         win.attributes = params
+    }
+}
+
+@Composable
+fun DefaultAppPickerScreen(
+    title: String,
+    candidates: List<String>,
+    currentPkg: String?,
+    onSelect: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    val context = LocalContext.current
+    val installed = remember {
+        candidates.filter { pkg -> isPackageInstalled(context, pkg) }
+    }
+
+    BridgeScaffold(title = title) {
+        Spacer(modifier = Modifier.height(8.dp))
+        if (installed.isEmpty()) {
+            Text("no compatible apps installed", color = BRIDGE_MUTED, fontSize = 13.sp)
+            Spacer(modifier = Modifier.weight(1f))
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)) {
+                installed.forEach { pkg ->
+                    val isCurrent = pkg == currentPkg
+                    BridgeRowTile(
+                        label = getAppLabel(context, pkg),
+                        hint = if (isCurrent) "(current)" else null,
+                        onClick = { onSelect(pkg) }
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
+        BridgeRowTile(label = "back", onClick = onBack)
     }
 }
 

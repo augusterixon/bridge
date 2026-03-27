@@ -39,6 +39,7 @@ import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.QrCode2
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Smartphone
+import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -509,23 +510,83 @@ private fun resolveFolder(context: Context, def: FolderDef): HomeTileState? {
 }
 
 /**
+ * Resolves a "role" tile (Messages, Music, Maps) based on the user's
+ * default app preference. Always returns a tile — never null:
+ *
+ * - Configured + installed → branded tile with generic role label/sublabel
+ * - Unconfigured or missing → "Set up in settings" prompt routing to Settings
+ *
+ * [folderDef] is used to look up brand colors for the configured package.
+ * Pass null for roles that have no folder (e.g. Maps).
+ */
+private fun resolveRoleTile(
+    context: Context,
+    defaultPkg: String?,
+    folderDef: FolderDef?,
+    genericLabel: String,
+    genericSublabel: String,
+    genericIcon: ImageVector,
+    configuredIconColor: Color = BridgeColors.textMuted,
+): HomeTileState.AppTileState {
+    if (!defaultPkg.isNullOrEmpty() && isAppInstalled(context, defaultPkg)) {
+        val matchingDef = folderDef?.apps?.firstOrNull { appDef ->
+            appDef.packages.any { it == defaultPkg }
+        }
+        return HomeTileState.AppTileState(
+            label = genericLabel,
+            sublabel = genericSublabel,
+            sublabelColor = matchingDef?.sublabelColor ?: BridgeColors.textMuted,
+            icon = genericIcon,
+            iconColor = matchingDef?.iconColor ?: configuredIconColor,
+            tileBackground = matchingDef?.tileBackground ?: BridgeColors.tilePrimary,
+            tileBorder = matchingDef?.tileBorder ?: BridgeColors.borderDefault,
+            installedPackage = defaultPkg,
+        )
+    }
+
+    return HomeTileState.AppTileState(
+        label = genericLabel,
+        sublabel = "Set up in settings",
+        sublabelColor = BridgeColors.textMuted,
+        icon = Icons.Outlined.TouchApp,
+        iconColor = BridgeColors.textMuted,
+        tileBackground = BridgeColors.tilePrimary,
+        tileBorder = BridgeColors.borderDefault,
+        internalRoute = BridgeScreen.Settings,
+    )
+}
+
+/**
  * Master resolution function. Scans the device for all supported apps,
  * resolves standalone tiles and folder categories, and assembles the
- * complete home screen layout organized by tier.
+ * complete home screen layout organized by tier. Role tiles (Messages,
+ * Music, Maps) are always present — either showing the configured
+ * default app or an "unconfigured" setup prompt.
  */
-private fun resolveHomeScreen(context: Context): HomeScreenState {
-    // Standalone tiles
+private fun resolveHomeScreen(context: Context, defaultApps: DefaultApps): HomeScreenState {
     val phone = resolveStandalone(context, phoneDef)
-    val maps = resolveStandalone(context, mapsDef)
     val messages = resolveStandalone(context, messagesDef)
     val library = resolveStandalone(context, libraryDef)
     val qr = resolveStandalone(context, qrDef)
     val hotspot = resolveStandalone(context, hotspotDef)
     val settings = resolveStandalone(context, settingsDef)
 
-    // Folder categories — each resolves to nothing, a single tile, or a folder
-    val messaging = resolveFolder(context, messagingFolderDef)
-    val music = resolveFolder(context, musicFolderDef)
+    val messaging = resolveRoleTile(
+        context, defaultApps.messagesPackage, messagingFolderDef,
+        "Messages", "Chat", Icons.AutoMirrored.Outlined.Chat
+    )
+
+    val music = resolveRoleTile(
+        context, defaultApps.musicPackage, musicFolderDef,
+        "Music", "Listen", Icons.Outlined.PlayArrow
+    )
+
+    val maps = resolveRoleTile(
+        context, defaultApps.mapsPackage, null,
+        "Maps", "Navigate", Icons.Outlined.Public,
+        configuredIconColor = BridgeColors.mapsBlue
+    )
+
     val travel = resolveFolder(context, travelFolderDef)
     val auth = resolveFolder(context, authFolderDef)
 
@@ -580,7 +641,8 @@ private fun launchTile(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BridgeHomeScreen(
-    onNavigate: (BridgeScreen) -> Unit
+    onNavigate: (BridgeScreen) -> Unit,
+    defaultApps: DefaultApps = DefaultApps(null, null, null)
 ) {
     val context = LocalContext.current
 
@@ -604,8 +666,8 @@ fun BridgeHomeScreen(
         }
     }
 
-    // Resolve which tiles belong on screen — cached for composable lifetime
-    val homeState = remember { resolveHomeScreen(context) }
+    // Resolve which tiles belong on screen — recomputed when defaults change
+    val homeState = remember(defaultApps) { resolveHomeScreen(context, defaultApps) }
 
     // Tracks the currently open folder sheet (null = sheet dismissed)
     var openFolder by remember { mutableStateOf<HomeTileState.FolderTileState?>(null) }
