@@ -72,6 +72,18 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 
+import android.content.ContentUris
+import android.provider.MediaStore
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+
 class MainActivity : ComponentActivity() {
 
     private lateinit var dpm: DevicePolicyManager
@@ -90,6 +102,14 @@ class MainActivity : ComponentActivity() {
         @Suppress("DEPRECATION")
         window.navigationBarColor = Color.BLACK
 
+        // TODO: Add to MyDeviceAdminReceiver.enforceDeviceOwnerPolicies():
+        //   dpm.setPermissionGrantState(admin, context.packageName,
+        //       android.Manifest.permission.READ_MEDIA_IMAGES,
+        //       DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED)
+        //   dpm.setPermissionGrantState(admin, context.packageName,
+        //       android.Manifest.permission.READ_MEDIA_VIDEO,
+        //       DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED)
+        // For pre-Android 13 (SDK < 33), grant READ_EXTERNAL_STORAGE instead.
         MyDeviceAdminReceiver.enforceDeviceOwnerPolicies(this)
 
         // Switch from Splash theme to real theme ASAP
@@ -300,7 +320,11 @@ enum class BridgeScreen {
 
     Connectivity,
     Bluetooth,
-    Settings
+    Settings,
+
+    LibraryPhotos,
+    LibraryVideos,
+    LibraryDocuments
 }
 
 private fun deviceAdminComponent(context: Context): ComponentName =
@@ -594,6 +618,70 @@ fun BridgeApp(
             )
         }
 
+        BridgeScreen.Library -> {
+            BackHandler {
+                statusText = null
+                currentScreen = BridgeScreen.Home
+            }
+            LibraryScreen(
+                onNavigatePhotos = {
+                    statusText = null
+                    currentScreen = BridgeScreen.LibraryPhotos
+                },
+                onNavigateVideos = {
+                    statusText = null
+                    currentScreen = BridgeScreen.LibraryVideos
+                },
+                onNavigateDocuments = {
+                    statusText = null
+                    currentScreen = BridgeScreen.LibraryDocuments
+                },
+                onBack = {
+                    statusText = null
+                    currentScreen = BridgeScreen.Home
+                }
+            )
+        }
+
+        BridgeScreen.LibraryPhotos -> {
+            BackHandler {
+                statusText = null
+                currentScreen = BridgeScreen.Library
+            }
+            LibraryPhotosScreen(
+                onBack = {
+                    statusText = null
+                    currentScreen = BridgeScreen.Library
+                }
+            )
+        }
+
+        BridgeScreen.LibraryVideos -> {
+            BackHandler {
+                statusText = null
+                currentScreen = BridgeScreen.Library
+            }
+            LibraryVideosScreen(
+                onBack = {
+                    statusText = null
+                    currentScreen = BridgeScreen.Library
+                }
+            )
+        }
+
+        BridgeScreen.LibraryDocuments -> {
+            BackHandler {
+                statusText = null
+                currentScreen = BridgeScreen.Library
+            }
+            LibraryDocumentsScreen(
+                onBack = {
+                    statusText = null
+                    currentScreen = BridgeScreen.Library
+                }
+            )
+        }
+
         else -> {
             BackHandler { currentScreen = BridgeScreen.Home }
             PlaceholderScreen(
@@ -868,26 +956,27 @@ fun ToolConfigScreen(
 @Composable
 fun BridgeSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val canWriteSettings = remember { android.provider.Settings.System.canWrite(context) }
+    val prefs = remember {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
 
-    // Read the current system brightness (0-255). Falls back to 128 if unreadable.
     var brightness by remember {
         mutableIntStateOf(
-            try {
-                android.provider.Settings.System.getInt(
-                    context.contentResolver,
-                    android.provider.Settings.System.SCREEN_BRIGHTNESS
-                )
-            } catch (_: Exception) {
-                128
-            }
+            prefs.getInt("bridge_brightness",
+                try {
+                    android.provider.Settings.System.getInt(
+                        context.contentResolver,
+                        android.provider.Settings.System.SCREEN_BRIGHTNESS
+                    )
+                } catch (_: Exception) {
+                    128
+                }
+            ).coerceIn(1, 255)
         )
     }
 
     BridgeScaffold(title = "settings") {
         Spacer(modifier = Modifier.height(8.dp))
-
-        // -- Brightness section -----------------------------------------------
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -914,7 +1003,8 @@ fun BridgeSettingsScreen(onBack: () -> Unit) {
             value = brightness.toFloat(),
             onValueChange = { newValue ->
                 brightness = newValue.toInt()
-                applyBrightness(context, newValue.toInt(), canWriteSettings)
+                prefs.edit { putInt("bridge_brightness", brightness) }
+                applyBrightness(context, brightness)
             },
             valueRange = 1f..255f,
             colors = SliderDefaults.colors(
@@ -924,15 +1014,6 @@ fun BridgeSettingsScreen(onBack: () -> Unit) {
             )
         )
 
-        if (!canWriteSettings) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "system brightness unavailable — using window-level",
-                color = BRIDGE_MUTED,
-                fontSize = 11.sp
-            )
-        }
-
         Spacer(modifier = Modifier.height(24.dp))
 
         BridgeRowTile(label = "back", onClick = onBack)
@@ -940,30 +1021,27 @@ fun BridgeSettingsScreen(onBack: () -> Unit) {
 }
 
 /**
- * Applies brightness at both the system level (if WRITE_SETTINGS is granted)
- * and the window level (always works, immediate visual feedback).
+ * Applies brightness at both the system level and the window level.
+ * System write may fail silently if WRITE_SETTINGS appops is not granted;
+ * window-level brightness always works as immediate fallback.
  * Clamps to [1, 255] to prevent a completely black screen.
  */
-private fun applyBrightness(context: Context, value: Int, canWriteSystem: Boolean) {
+private fun applyBrightness(context: Context, value: Int) {
     val clamped = value.coerceIn(1, 255)
 
-    if (canWriteSystem) {
-        try {
-            android.provider.Settings.System.putInt(
-                context.contentResolver,
-                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
-                android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
-            )
-            android.provider.Settings.System.putInt(
-                context.contentResolver,
-                android.provider.Settings.System.SCREEN_BRIGHTNESS,
-                clamped
-            )
-        } catch (_: Exception) { }
-    }
+    try {
+        android.provider.Settings.System.putInt(
+            context.contentResolver,
+            android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
+            android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+        )
+        android.provider.Settings.System.putInt(
+            context.contentResolver,
+            android.provider.Settings.System.SCREEN_BRIGHTNESS,
+            clamped
+        )
+    } catch (_: SecurityException) { }
 
-    // Window-level brightness — always applied for immediate feedback.
-    // Only affects Bridge's own window; external apps use system brightness.
     val activity = context as? ComponentActivity
     activity?.window?.let { win ->
         val params = win.attributes
@@ -1166,6 +1244,393 @@ private fun QRResultScreen(
         Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
 
         BridgeRowTile(label = "scan again", onClick = onScanAgain)
+        BridgeRowTile(label = "back", onClick = onBack)
+    }
+}
+
+// =============================================================================
+// Library — file browser for photos, videos, and documents
+// =============================================================================
+
+private fun queryMediaCount(context: Context, collectionUri: Uri): Int {
+    return context.contentResolver.query(
+        collectionUri, arrayOf(MediaStore.MediaColumns._ID), null, null, null
+    )?.use { it.count } ?: 0
+}
+
+private val DOCUMENT_MIME_TYPES = arrayOf(
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/plain"
+)
+
+private fun queryDocumentCount(context: Context): Int {
+    val selection = "${MediaStore.Files.FileColumns.MIME_TYPE} IN (?,?,?,?)"
+    return context.contentResolver.query(
+        MediaStore.Files.getContentUri("external"),
+        arrayOf(MediaStore.Files.FileColumns._ID),
+        selection, DOCUMENT_MIME_TYPES, null
+    )?.use { it.count } ?: 0
+}
+
+private fun queryImageUris(context: Context): List<Uri> {
+    val uris = mutableListOf<Uri>()
+    context.contentResolver.query(
+        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+        arrayOf(MediaStore.Images.Media._ID),
+        null, null,
+        "${MediaStore.Images.Media.DATE_ADDED} DESC"
+    )?.use { cursor ->
+        val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+        while (cursor.moveToNext()) {
+            uris.add(
+                ContentUris.withAppendedId(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    cursor.getLong(idCol)
+                )
+            )
+        }
+    }
+    return uris
+}
+
+private fun queryVideoUris(context: Context): List<Uri> {
+    val uris = mutableListOf<Uri>()
+    context.contentResolver.query(
+        MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+        arrayOf(MediaStore.Video.Media._ID),
+        null, null,
+        "${MediaStore.Video.Media.DATE_ADDED} DESC"
+    )?.use { cursor ->
+        val idCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
+        while (cursor.moveToNext()) {
+            uris.add(
+                ContentUris.withAppendedId(
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                    cursor.getLong(idCol)
+                )
+            )
+        }
+    }
+    return uris
+}
+
+private data class DocumentItem(
+    val uri: Uri,
+    val name: String,
+    val size: Long,
+    val mimeType: String
+)
+
+private fun queryDocuments(context: Context): List<DocumentItem> {
+    val docs = mutableListOf<DocumentItem>()
+    val selection = "${MediaStore.Files.FileColumns.MIME_TYPE} IN (?,?,?,?)"
+    context.contentResolver.query(
+        MediaStore.Files.getContentUri("external"),
+        arrayOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.DISPLAY_NAME,
+            MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.MIME_TYPE
+        ),
+        selection, DOCUMENT_MIME_TYPES,
+        "${MediaStore.Files.FileColumns.DATE_ADDED} DESC"
+    )?.use { cursor ->
+        val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+        val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+        val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
+        val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
+        while (cursor.moveToNext()) {
+            docs.add(
+                DocumentItem(
+                    uri = ContentUris.withAppendedId(
+                        MediaStore.Files.getContentUri("external"),
+                        cursor.getLong(idCol)
+                    ),
+                    name = cursor.getString(nameCol) ?: "unknown",
+                    size = cursor.getLong(sizeCol),
+                    mimeType = cursor.getString(mimeCol) ?: "application/octet-stream"
+                )
+            )
+        }
+    }
+    return docs
+}
+
+private fun formatFileSize(bytes: Long): String {
+    return when {
+        bytes < 1024 -> "$bytes B"
+        bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+        bytes < 1024 * 1024 * 1024 -> "${"%.1f".format(bytes / (1024.0 * 1024.0))} MB"
+        else -> "${"%.1f".format(bytes / (1024.0 * 1024.0 * 1024.0))} GB"
+    }
+}
+
+@Composable
+fun LibraryScreen(
+    onNavigatePhotos: () -> Unit,
+    onNavigateVideos: () -> Unit,
+    onNavigateDocuments: () -> Unit,
+    onBack: () -> Unit
+) {
+    val context = LocalContext.current
+    var photoCount by remember { mutableStateOf<Int?>(null) }
+    var videoCount by remember { mutableStateOf<Int?>(null) }
+    var documentCount by remember { mutableStateOf<Int?>(null) }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            photoCount = queryMediaCount(context, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+            videoCount = queryMediaCount(context, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+            documentCount = queryDocumentCount(context)
+        }
+    }
+
+    BridgeScaffold(title = "library") {
+        Spacer(modifier = Modifier.height(8.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)) {
+            BridgeRowTile(
+                label = "photos",
+                hint = photoCount?.let { "$it photos" },
+                onClick = onNavigatePhotos
+            )
+            BridgeRowTile(
+                label = "videos",
+                hint = videoCount?.let { "$it videos" },
+                onClick = onNavigateVideos
+            )
+            BridgeRowTile(
+                label = "documents",
+                hint = documentCount?.let { "$it documents" },
+                onClick = onNavigateDocuments
+            )
+            BridgeRowTile(label = "back", onClick = onBack)
+        }
+    }
+}
+
+@Composable
+fun LibraryPhotosScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    var photos by remember { mutableStateOf<List<Uri>?>(null) }
+    var selectedPhoto by remember { mutableStateOf<Uri?>(null) }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            photos = queryImageUris(context)
+        }
+    }
+
+    if (selectedPhoto != null) {
+        BackHandler { selectedPhoto = null }
+        LibraryImageDetailScreen(
+            imageUri = selectedPhoto!!,
+            onBack = { selectedPhoto = null }
+        )
+    } else {
+        BridgeScaffold(title = "photos") {
+            Spacer(modifier = Modifier.height(8.dp))
+            when {
+                photos == null -> {
+                    Text("loading...", color = BRIDGE_MUTED, fontSize = 13.sp)
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+                photos!!.isEmpty() -> {
+                    Text("nothing here yet", color = BRIDGE_MUTED, fontSize = 13.sp)
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+                else -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(BridgeColors.tilePrimary)
+                    ) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(3),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(photos!!) { uri ->
+                                AsyncImage(
+                                    model = uri,
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .aspectRatio(1f)
+                                        .clickable { selectedPhoto = uri },
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
+            BridgeRowTile(label = "back", onClick = onBack)
+        }
+    }
+}
+
+@Composable
+private fun LibraryImageDetailScreen(imageUri: Uri, onBack: () -> Unit) {
+    BridgeScaffold(title = "photo") {
+        Spacer(modifier = Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(BridgeColors.tilePrimary),
+            contentAlignment = Alignment.Center
+        ) {
+            AsyncImage(
+                model = imageUri,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
+            )
+        }
+        Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
+        BridgeRowTile(label = "back", onClick = onBack)
+    }
+}
+
+@Composable
+fun LibraryVideosScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    var videos by remember { mutableStateOf<List<Uri>?>(null) }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            videos = queryVideoUris(context)
+        }
+    }
+
+    BridgeScaffold(title = "videos") {
+        Spacer(modifier = Modifier.height(8.dp))
+        when {
+            videos == null -> {
+                Text("loading...", color = BRIDGE_MUTED, fontSize = 13.sp)
+                Spacer(modifier = Modifier.weight(1f))
+            }
+            videos!!.isEmpty() -> {
+                Text("nothing here yet", color = BRIDGE_MUTED, fontSize = 13.sp)
+                Spacer(modifier = Modifier.weight(1f))
+            }
+            else -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(BridgeColors.tilePrimary)
+                ) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(videos!!) { uri ->
+                            // TODO: The system video player package must be added to
+                            // LAUNCHED_PACKAGES in MyDeviceAdminReceiver and included
+                            // in setLockTaskPackages for playback to work in kiosk mode.
+                            Box(
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .clickable {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                setDataAndType(uri, "video/*")
+                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Log.w("BridgeApp", "Failed to launch video: $e")
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                AsyncImage(
+                                    model = uri,
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .background(ComposeColor.Black.copy(alpha = 0.5f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "▶",
+                                        color = ComposeColor.White,
+                                        fontSize = 16.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
+        BridgeRowTile(label = "back", onClick = onBack)
+    }
+}
+
+@Composable
+fun LibraryDocumentsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    var documents by remember { mutableStateOf<List<DocumentItem>?>(null) }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            documents = queryDocuments(context)
+        }
+    }
+
+    BridgeScaffold(title = "documents") {
+        Spacer(modifier = Modifier.height(8.dp))
+        when {
+            documents == null -> {
+                Text("loading...", color = BRIDGE_MUTED, fontSize = 13.sp)
+                Spacer(modifier = Modifier.weight(1f))
+            }
+            documents!!.isEmpty() -> {
+                Text("nothing here yet", color = BRIDGE_MUTED, fontSize = 13.sp)
+                Spacer(modifier = Modifier.weight(1f))
+            }
+            else -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)
+                ) {
+                    documents!!.forEach { doc ->
+                        BridgeRowTile(
+                            label = doc.name,
+                            hint = formatFileSize(doc.size),
+                            onClick = {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                        setDataAndType(doc.uri, doc.mimeType)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Log.w("BridgeApp", "Failed to open document: $e")
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
         BridgeRowTile(label = "back", onClick = onBack)
     }
 }
