@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.UserManager
 import android.util.Log
 
 class MyDeviceAdminReceiver : DeviceAdminReceiver() {
@@ -83,6 +84,11 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
             "com.ubercab",
             "com.grabtaxi.passenger",
             "ee.mtakso.client",
+            // System viewers for Library (video and document playback)
+            "com.google.android.apps.photos",
+            "com.google.android.apps.docs",
+            "com.google.android.documentsui",
+            "com.android.documentsui",
         )
 
         fun enforceDeviceOwnerPolicies(context: Context) {
@@ -177,6 +183,43 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
                 writeLog(context, "ERROR CAMERA permission grant: ${e.message}")
             }
 
+            // Auto-grant media read permissions for Library.
+            // Android 13+ uses granular media permissions; older versions
+            // use the single READ_EXTERNAL_STORAGE permission.
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                try {
+                    dpm.setPermissionGrantState(
+                        admin, context.packageName,
+                        android.Manifest.permission.READ_MEDIA_IMAGES,
+                        DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED
+                    )
+                    writeLog(context, "READ_MEDIA_IMAGES grant OK")
+                } catch (e: Exception) {
+                    writeLog(context, "ERROR READ_MEDIA_IMAGES grant: ${e.message}")
+                }
+                try {
+                    dpm.setPermissionGrantState(
+                        admin, context.packageName,
+                        android.Manifest.permission.READ_MEDIA_VIDEO,
+                        DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED
+                    )
+                    writeLog(context, "READ_MEDIA_VIDEO grant OK")
+                } catch (e: Exception) {
+                    writeLog(context, "ERROR READ_MEDIA_VIDEO grant: ${e.message}")
+                }
+            } else {
+                try {
+                    dpm.setPermissionGrantState(
+                        admin, context.packageName,
+                        android.Manifest.permission.READ_EXTERNAL_STORAGE,
+                        DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED
+                    )
+                    writeLog(context, "READ_EXTERNAL_STORAGE grant OK")
+                } catch (e: Exception) {
+                    writeLog(context, "ERROR READ_EXTERNAL_STORAGE grant: ${e.message}")
+                }
+            }
+
             // WRITE_SETTINGS is a "special" permission (not a runtime/dangerous
             // permission), so setPermissionGrantState cannot auto-grant it.
             // On provisioned devices, grant it during setup via:
@@ -188,6 +231,26 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
                 writeLog(context, "WRITE_SETTINGS canWrite: $canWrite")
             } catch (e: Exception) {
                 writeLog(context, "ERROR checking WRITE_SETTINGS: ${e.message}")
+            }
+
+            // Block dangerous paths inside Settings while keeping
+            // Hotspot / WiFi / Bluetooth accessible. Prevents Developer
+            // Options, factory reset, account changes, and app management.
+            val restrictions = listOf(
+                UserManager.DISALLOW_DEBUGGING_FEATURES,
+                UserManager.DISALLOW_FACTORY_RESET,
+                UserManager.DISALLOW_MODIFY_ACCOUNTS,
+                UserManager.DISALLOW_CONFIG_CREDENTIALS,
+                UserManager.DISALLOW_APPS_CONTROL,
+                UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA
+            )
+            for (restriction in restrictions) {
+                try {
+                    dpm.addUserRestriction(admin, restriction)
+                    writeLog(context, "UserRestriction $restriction OK")
+                } catch (e: Exception) {
+                    writeLog(context, "ERROR UserRestriction $restriction: ${e.message}")
+                }
             }
 
             writeLog(context, "enforceDeviceOwnerPolicies complete")

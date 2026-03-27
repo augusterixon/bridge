@@ -390,7 +390,7 @@ private val authFolderDef = FolderDef(
         FolderAppDef(
             label = "Microsoft Authenticator",
             sublabel = "2FA",
-            packages = listOf("com.microsoft.authenticator"),
+            packages = listOf("com.azure.authenticator"),
             icon = Icons.Outlined.Smartphone,
             iconColor = BridgeColors.utilityIcon,
             sublabelColor = BridgeColors.utilityLabel,

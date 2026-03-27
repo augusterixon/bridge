@@ -102,14 +102,6 @@ class MainActivity : ComponentActivity() {
         @Suppress("DEPRECATION")
         window.navigationBarColor = Color.BLACK
 
-        // TODO: Add to MyDeviceAdminReceiver.enforceDeviceOwnerPolicies():
-        //   dpm.setPermissionGrantState(admin, context.packageName,
-        //       android.Manifest.permission.READ_MEDIA_IMAGES,
-        //       DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED)
-        //   dpm.setPermissionGrantState(admin, context.packageName,
-        //       android.Manifest.permission.READ_MEDIA_VIDEO,
-        //       DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED)
-        // For pre-Android 13 (SDK < 33), grant READ_EXTERNAL_STORAGE instead.
         MyDeviceAdminReceiver.enforceDeviceOwnerPolicies(this)
 
         // Switch from Splash theme to real theme ASAP
@@ -405,9 +397,15 @@ private fun deviceAdminComponent(context: Context): ComponentName =
 // disappear again immediately. A future fix could use an AccessibilityService
 // to force immersive mode system-wide, but that requires additional provisioning.
 private fun tryLaunchPackage(activity: ComponentActivity, pkg: String): Boolean {
-    val intent = activity.packageManager.getLaunchIntentForPackage(pkg) ?: return false
-    activity.startActivity(intent)
-    return true
+    return try {
+        val intent = activity.packageManager.getLaunchIntentForPackage(pkg)
+            ?: return false
+        activity.startActivity(intent)
+        true
+    } catch (e: Exception) {
+        Log.w("BridgeApp", "Failed to launch $pkg: $e")
+        false
+    }
 }
 
 private fun openDialer(activity: ComponentActivity) {
@@ -430,19 +428,18 @@ private fun openSms(activity: ComponentActivity) {
 }
 
 private fun openMapsNavigation(activity: ComponentActivity) {
-    val uri = Uri.parse("google.navigation:q=Central+Station")
-    val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-        setPackage("com.google.android.apps.maps")
-    }
-
     try {
-        if (intent.resolveActivity(activity.packageManager) != null) {
+        val intent = activity.packageManager
+            .getLaunchIntentForPackage("com.google.android.apps.maps")
+        if (intent != null) {
             activity.startActivity(intent)
         } else {
-            activity.startActivity(Intent(Intent.ACTION_VIEW, uri))
+            activity.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0"))
+            )
         }
     } catch (e: Exception) {
-        Log.w("BridgeApp", "Failed to launch: $e")
+        Log.w("BridgeApp", "Failed to launch Maps: $e")
     }
 }
 
@@ -1481,6 +1478,7 @@ fun LibraryScreen(onBack: () -> Unit) {
     var videos by remember { mutableStateOf<List<Uri>?>(null) }
     var documents by remember { mutableStateOf<List<DocumentItem>?>(null) }
     var selectedPhoto by remember { mutableStateOf<Uri?>(null) }
+    var libraryError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -1528,6 +1526,17 @@ fun LibraryScreen(onBack: () -> Unit) {
                     onClick = { activeSheet = "documents" }
                 )
                 BridgeRowTile(label = "Back", onClick = onBack)
+            }
+            if (!libraryError.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = libraryError!!,
+                    fontFamily = DmSansFontFamily,
+                    color = BridgeColors.textMuted,
+                    fontSize = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
 
@@ -1581,9 +1590,6 @@ fun LibraryScreen(onBack: () -> Unit) {
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(BridgeColors.tilePrimary)
                         ) {
-                            // TODO: The system video player package must be added to
-                            // LAUNCHED_PACKAGES in MyDeviceAdminReceiver and included
-                            // in setLockTaskPackages for playback to work in kiosk mode.
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(3),
                                 modifier = Modifier.fillMaxWidth()
@@ -1600,8 +1606,10 @@ fun LibraryScreen(onBack: () -> Unit) {
                                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                                     }
                                                     context.startActivity(intent)
+                                                    libraryError = null
                                                 } catch (e: Exception) {
                                                     Log.w("BridgeApp", "Failed to launch video: $e")
+                                                    libraryError = "Could not open file — viewer not available"
                                                 }
                                             },
                                         contentAlignment = Alignment.Center
@@ -1648,8 +1656,10 @@ fun LibraryScreen(onBack: () -> Unit) {
                                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                         }
                                         context.startActivity(intent)
+                                        libraryError = null
                                     } catch (e: Exception) {
                                         Log.w("BridgeApp", "Failed to open document: $e")
+                                        libraryError = "Could not open file — viewer not available"
                                     }
                                 }
                             )

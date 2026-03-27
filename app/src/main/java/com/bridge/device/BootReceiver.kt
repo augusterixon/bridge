@@ -3,6 +3,7 @@ package com.bridge.device
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -19,7 +20,11 @@ class BootReceiver : BroadcastReceiver() {
                     addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
                 }
-                context.startActivity(launchIntent)
+                try {
+                    context.startActivity(launchIntent)
+                } catch (e: Exception) {
+                    Log.e("BridgeBootReceiver", "Failed to launch Bridge on boot: $e")
+                }
             }
         }
     }
