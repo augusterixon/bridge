@@ -16,6 +16,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -39,6 +40,7 @@ import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.QrCode2
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Smartphone
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material.icons.outlined.Wifi
@@ -69,7 +71,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bridge.device.ui.theme.BridgeColors
-import com.bridge.device.ui.theme.OutfitFontFamily
+import com.bridge.device.ui.theme.DmSansFontFamily
+import com.bridge.device.ui.theme.GeistFontFamily
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
@@ -697,7 +700,7 @@ fun BridgeHomeScreen(
         ) {
             Text(
                 text = "BRIDGE",
-                fontFamily = OutfitFontFamily,
+                fontFamily = GeistFontFamily,
                 fontWeight = FontWeight.W500,
                 fontSize = 11.sp,
                 letterSpacing = 3.sp,
@@ -718,7 +721,7 @@ fun BridgeHomeScreen(
 
         Text(
             text = "$greeting,\nAugust.",
-            fontFamily = OutfitFontFamily,
+            fontFamily = DmSansFontFamily,
             fontWeight = FontWeight.W300,
             fontSize = 22.sp,
             lineHeight = (22 * 1.3).sp,
@@ -928,14 +931,14 @@ private fun PrimaryTile(
             Column {
                 Text(
                     text = label,
-                    fontFamily = OutfitFontFamily,
+                    fontFamily = DmSansFontFamily,
                     fontWeight = FontWeight.W500,
                     fontSize = 15.sp,
                     color = BridgeColors.textPrimary
                 )
                 Text(
                     text = sublabel,
-                    fontFamily = OutfitFontFamily,
+                    fontFamily = DmSansFontFamily,
                     fontWeight = FontWeight.W400,
                     fontSize = 11.sp,
                     color = sublabelColor
@@ -1005,14 +1008,14 @@ private fun FolderTile(
             Column {
                 Text(
                     text = folder.folderName,
-                    fontFamily = OutfitFontFamily,
+                    fontFamily = DmSansFontFamily,
                     fontWeight = FontWeight.W500,
                     fontSize = 15.sp,
                     color = BridgeColors.textPrimary
                 )
                 Text(
                     text = "${folder.installedApps.size} apps",
-                    fontFamily = OutfitFontFamily,
+                    fontFamily = DmSansFontFamily,
                     fontWeight = FontWeight.W400,
                     fontSize = 11.sp,
                     color = BridgeColors.textMuted
@@ -1075,7 +1078,7 @@ private fun MediumRow(
                 )
                 Text(
                     text = label,
-                    fontFamily = OutfitFontFamily,
+                    fontFamily = DmSansFontFamily,
                     fontWeight = FontWeight.W400,
                     fontSize = 14.sp,
                     color = BridgeColors.textSecondary
@@ -1137,7 +1140,7 @@ private fun UtilityTile(
         )
         Text(
             text = label,
-            fontFamily = OutfitFontFamily,
+            fontFamily = DmSansFontFamily,
             fontWeight = FontWeight.W400,
             fontSize = 10.sp,
             color = BridgeColors.utilityLabel,
@@ -1204,20 +1207,15 @@ private fun AppIconImage(
 }
 
 // ===========================================================================
-// AppFolderSheet — ModalBottomSheet listing apps inside a folder
+// BridgeBottomSheet — reusable sheet matching Bridge visual language
 // ===========================================================================
 
-/**
- * Dark bottom sheet that appears when a folder tile is tapped. Lists all
- * installed apps in the folder as tappable rows with real app icons.
- * Dismisses on back gesture, scrim tap, or drag-down.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AppFolderSheet(
-    folder: HomeTileState.FolderTileState,
+fun BridgeBottomSheet(
+    title: String,
     onDismiss: () -> Unit,
-    onLaunchApp: (String) -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 
@@ -1228,7 +1226,6 @@ private fun AppFolderSheet(
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         scrimColor = Color.Black.copy(alpha = 0.5f),
         dragHandle = {
-            // Custom drag handle matching Bridge's visual language
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1248,56 +1245,119 @@ private fun AppFolderSheet(
         Column(
             modifier = Modifier.padding(horizontal = 24.dp)
         ) {
-            // Folder name as the sheet title
             Text(
-                text = folder.folderName,
-                fontFamily = OutfitFontFamily,
+                text = title,
+                fontFamily = DmSansFontFamily,
                 fontWeight = FontWeight.W500,
                 fontSize = 16.sp,
+                color = BridgeColors.textPrimary
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            content()
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+@Composable
+fun BridgeSheetRow(
+    label: String,
+    sublabel: String? = null,
+    icon: ImageVector? = null,
+    isSelected: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = BridgeColors.textMuted,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                fontFamily = DmSansFontFamily,
+                fontWeight = FontWeight.W400,
+                fontSize = 15.sp,
                 color = Color.White
             )
+            if (!sublabel.isNullOrEmpty()) {
+                Text(
+                    text = sublabel,
+                    fontFamily = DmSansFontFamily,
+                    fontWeight = FontWeight.W400,
+                    fontSize = 11.sp,
+                    color = BridgeColors.textMuted
+                )
+            }
+        }
+        if (isSelected) {
+            Icon(
+                imageVector = Icons.Outlined.Check,
+                contentDescription = "Selected",
+                tint = Color.White,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
 
-            Spacer(modifier = Modifier.height(16.dp))
+// ===========================================================================
+// AppFolderSheet — folder sheet using BridgeBottomSheet
+// ===========================================================================
 
-            // Each app is a tappable row: icon + name + sublabel
-            folder.installedApps.forEach { app ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable { onLaunchApp(app.packageName) }
-                        .padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    AppIconImage(
-                        packageName = app.packageName,
-                        size = 24.dp,
-                        modifier = Modifier.clip(RoundedCornerShape(6.dp))
+@Composable
+private fun AppFolderSheet(
+    folder: HomeTileState.FolderTileState,
+    onDismiss: () -> Unit,
+    onLaunchApp: (String) -> Unit,
+) {
+    BridgeBottomSheet(title = folder.folderName, onDismiss = onDismiss) {
+        folder.installedApps.forEach { app ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onLaunchApp(app.packageName) }
+                    .padding(vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                AppIconImage(
+                    packageName = app.packageName,
+                    size = 24.dp,
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp))
+                )
+                Column {
+                    Text(
+                        text = app.label,
+                        fontFamily = DmSansFontFamily,
+                        fontWeight = FontWeight.W400,
+                        fontSize = 15.sp,
+                        color = Color.White
                     )
-                    Column {
+                    if (app.sublabel.isNotEmpty()) {
                         Text(
-                            text = app.label,
-                            fontFamily = OutfitFontFamily,
+                            text = app.sublabel,
+                            fontFamily = DmSansFontFamily,
                             fontWeight = FontWeight.W400,
-                            fontSize = 15.sp,
-                            color = Color.White
+                            fontSize = 11.sp,
+                            color = BridgeColors.textMuted
                         )
-                        if (app.sublabel.isNotEmpty()) {
-                            Text(
-                                text = app.sublabel,
-                                fontFamily = OutfitFontFamily,
-                                fontWeight = FontWeight.W400,
-                                fontSize = 11.sp,
-                                color = BridgeColors.textMuted
-                            )
-                        }
                     }
                 }
             }
-
-            // Bottom padding so the last row doesn't sit against the edge
-            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }

@@ -84,6 +84,7 @@ dependencies {
     implementation(libs.androidx.compose.material3)
 
     implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.ui:ui-text-google-fonts:1.6.0")
 
     implementation("androidx.camera:camera-camera2:1.4.1")
     implementation("androidx.camera:camera-lifecycle:1.4.1")

@@ -1,6 +1,7 @@
 package com.bridge.device
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.LaunchedEffect
@@ -53,6 +54,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.camera.core.CameraSelector
@@ -62,11 +64,11 @@ import androidx.camera.core.Preview as CameraPreview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.bridge.device.ui.theme.BridgeColors
 import com.bridge.device.ui.theme.BridgeTheme
+import com.bridge.device.ui.theme.DmSansFontFamily
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -79,8 +81,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 
@@ -390,15 +390,7 @@ enum class BridgeScreen {
 
     Connectivity,
     Bluetooth,
-    Settings,
-
-    LibraryPhotos,
-    LibraryVideos,
-    LibraryDocuments,
-
-    DefaultMessagesPicker,
-    DefaultMusicPicker,
-    DefaultMapsPicker
+    Settings
 }
 
 private fun deviceAdminComponent(context: Context): ComponentName =
@@ -497,7 +489,7 @@ fun BridgeApp(
             }
             FirstRunScreen(
                 title = "Auth",
-                enableLabel = "Enable auth apps",
+                enableLabel = "Enable Auth Apps",
                 onEnable = {
                     statusText = null
                     currentScreen = BridgeScreen.AuthConfig
@@ -521,7 +513,7 @@ fun BridgeApp(
                     title = "Auth",
                     enabledTools = enabledAuth(),
                     statusText = statusText,
-                    manageLabel = "Manage auth apps",
+                    manageLabel = "Manage Auth Apps",
                     onBack = {
                         statusText = null
                         currentScreen = BridgeScreen.Home
@@ -532,7 +524,7 @@ fun BridgeApp(
                     },
                     onOpenTool = { tool ->
                         val ok = onTryLaunchPackage(tool.pkg)
-                        statusText = if (ok) null else "${tool.title} not installed"
+                        statusText = if (ok) null else "${tool.title} Not Installed"
                     }
                 )
             }
@@ -564,7 +556,7 @@ fun BridgeApp(
             }
             FirstRunScreen(
                 title = "Utility",
-                enableLabel = "Enable utility apps",
+                enableLabel = "Enable Utility Apps",
                 onEnable = {
                     statusText = null
                     currentScreen = BridgeScreen.UtilityConfig
@@ -588,7 +580,7 @@ fun BridgeApp(
                     title = "Utility",
                     enabledTools = enabledUtility(),
                     statusText = statusText,
-                    manageLabel = "Manage utility apps",
+                    manageLabel = "Manage Utility Apps",
                     onBack = {
                         statusText = null
                         currentScreen = BridgeScreen.Home
@@ -599,7 +591,7 @@ fun BridgeApp(
                     },
                     onOpenTool = { tool ->
                         val ok = onTryLaunchPackage(tool.pkg)
-                        statusText = if (ok) null else "${tool.title} not installed"
+                        statusText = if (ok) null else "${tool.title} Not Installed"
                     }
                 )
             }
@@ -642,7 +634,7 @@ fun BridgeApp(
                 },
                 onOpenTool = { tool ->
                     val ok = onTryLaunchPackage(tool.pkg)
-                    statusText = if (ok) null else "${tool.title} not installed"
+                    statusText = if (ok) null else "${tool.title} Not Installed"
                 },
                 onManage = {
                     statusText = null
@@ -689,21 +681,10 @@ fun BridgeApp(
             }
             BridgeSettingsScreen(
                 defaultApps = defaultApps,
+                onDefaultAppsChanged = { defaultApps = it },
                 onBack = {
                     statusText = null
                     currentScreen = BridgeScreen.Home
-                },
-                onPickMessages = {
-                    statusText = null
-                    currentScreen = BridgeScreen.DefaultMessagesPicker
-                },
-                onPickMusic = {
-                    statusText = null
-                    currentScreen = BridgeScreen.DefaultMusicPicker
-                },
-                onPickMaps = {
-                    statusText = null
-                    currentScreen = BridgeScreen.DefaultMapsPicker
                 }
             )
         }
@@ -714,126 +695,9 @@ fun BridgeApp(
                 currentScreen = BridgeScreen.Home
             }
             LibraryScreen(
-                onNavigatePhotos = {
-                    statusText = null
-                    currentScreen = BridgeScreen.LibraryPhotos
-                },
-                onNavigateVideos = {
-                    statusText = null
-                    currentScreen = BridgeScreen.LibraryVideos
-                },
-                onNavigateDocuments = {
-                    statusText = null
-                    currentScreen = BridgeScreen.LibraryDocuments
-                },
                 onBack = {
                     statusText = null
                     currentScreen = BridgeScreen.Home
-                }
-            )
-        }
-
-        BridgeScreen.LibraryPhotos -> {
-            BackHandler {
-                statusText = null
-                currentScreen = BridgeScreen.Library
-            }
-            LibraryPhotosScreen(
-                onBack = {
-                    statusText = null
-                    currentScreen = BridgeScreen.Library
-                }
-            )
-        }
-
-        BridgeScreen.LibraryVideos -> {
-            BackHandler {
-                statusText = null
-                currentScreen = BridgeScreen.Library
-            }
-            LibraryVideosScreen(
-                onBack = {
-                    statusText = null
-                    currentScreen = BridgeScreen.Library
-                }
-            )
-        }
-
-        BridgeScreen.LibraryDocuments -> {
-            BackHandler {
-                statusText = null
-                currentScreen = BridgeScreen.Library
-            }
-            LibraryDocumentsScreen(
-                onBack = {
-                    statusText = null
-                    currentScreen = BridgeScreen.Library
-                }
-            )
-        }
-
-        BridgeScreen.DefaultMessagesPicker -> {
-            BackHandler {
-                statusText = null
-                currentScreen = BridgeScreen.Settings
-            }
-            DefaultAppPickerScreen(
-                title = "messages app",
-                candidates = MESSAGES_CANDIDATES,
-                currentPkg = defaultApps.messagesPackage,
-                onSelect = { pkg ->
-                    defaultApps = defaultApps.copy(messagesPackage = pkg)
-                    saveDefaultApps(context, defaultApps)
-                    statusText = null
-                    currentScreen = BridgeScreen.Settings
-                },
-                onBack = {
-                    statusText = null
-                    currentScreen = BridgeScreen.Settings
-                }
-            )
-        }
-
-        BridgeScreen.DefaultMusicPicker -> {
-            BackHandler {
-                statusText = null
-                currentScreen = BridgeScreen.Settings
-            }
-            DefaultAppPickerScreen(
-                title = "music app",
-                candidates = MUSIC_CANDIDATES,
-                currentPkg = defaultApps.musicPackage,
-                onSelect = { pkg ->
-                    defaultApps = defaultApps.copy(musicPackage = pkg)
-                    saveDefaultApps(context, defaultApps)
-                    statusText = null
-                    currentScreen = BridgeScreen.Settings
-                },
-                onBack = {
-                    statusText = null
-                    currentScreen = BridgeScreen.Settings
-                }
-            )
-        }
-
-        BridgeScreen.DefaultMapsPicker -> {
-            BackHandler {
-                statusText = null
-                currentScreen = BridgeScreen.Settings
-            }
-            DefaultAppPickerScreen(
-                title = "maps app",
-                candidates = MAPS_CANDIDATES,
-                currentPkg = defaultApps.mapsPackage,
-                onSelect = { pkg ->
-                    defaultApps = defaultApps.copy(mapsPackage = pkg)
-                    saveDefaultApps(context, defaultApps)
-                    statusText = null
-                    currentScreen = BridgeScreen.Settings
-                },
-                onBack = {
-                    statusText = null
-                    currentScreen = BridgeScreen.Settings
                 }
             )
         }
@@ -848,19 +712,10 @@ fun BridgeApp(
     }
 }
 
-private val BRIDGE_BG = ComposeColor(0xFF121314)      // dark gray
-private val BRIDGE_TILE = ComposeColor(0xFF1A1C1E)    // slightly lighter tile
-private val BRIDGE_TILE_PRESSED = ComposeColor(0xFF202327)
-private val BRIDGE_TEXT = ComposeColor(0xFFE6E7E8)
-private val BRIDGE_MUTED = ComposeColor(0xFF9EA3A8)
-
-// Stack layout: set to 0.dp for square tiles
-private val BRIDGE_TILE_CORNER = 10.dp
 private val BRIDGE_TILE_SPACING = 10.dp
 
 private val timeFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
-private fun String.bridgeLower(): String = this.lowercase()
 
 @Composable
 fun BridgeScaffold(
@@ -878,7 +733,7 @@ fun BridgeScaffold(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(BRIDGE_BG)
+            .background(BridgeColors.background)
             .padding(horizontal = 18.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.Top,
         horizontalAlignment = Alignment.Start
@@ -888,17 +743,20 @@ fun BridgeScaffold(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = title.bridgeLower(),
-                color = BRIDGE_TEXT,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Medium
+                text = title.uppercase(),
+                fontFamily = DmSansFontFamily,
+                fontWeight = FontWeight.W500,
+                fontSize = 13.sp,
+                letterSpacing = 2.sp,
+                color = BridgeColors.wordmark
             )
             Spacer(modifier = Modifier.weight(1f))
             Text(
                 text = nowText,
-                color = BRIDGE_MUTED,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Normal
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.W400,
+                fontSize = 11.sp,
+                color = BridgeColors.clock
             )
         }
         Spacer(modifier = Modifier.height(8.dp))
@@ -907,7 +765,8 @@ fun BridgeScaffold(
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = statusText,
-                color = BRIDGE_MUTED,
+                fontFamily = DmSansFontFamily,
+                color = BridgeColors.textMuted,
                 fontSize = 13.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
@@ -916,7 +775,6 @@ fun BridgeScaffold(
     }
 }
 
-/** Reusable full-width row tile for list-style screens (min 64dp, rounded, Bridge colors). */
 @Composable
 fun BridgeRowTile(
     label: String,
@@ -924,15 +782,14 @@ fun BridgeRowTile(
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val bg = if (pressed) BRIDGE_TILE_PRESSED else BRIDGE_TILE
-    val shape = RoundedCornerShape(BRIDGE_TILE_CORNER)
+    val shape = RoundedCornerShape(16.dp)
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 64.dp)
             .clip(shape)
-            .background(bg)
+            .background(BridgeColors.tilePrimary)
+            .border(1.dp, BridgeColors.borderDefault, shape)
             .clickable(interactionSource = interactionSource, indication = null, onClickLabel = label, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 16.dp),
         contentAlignment = Alignment.CenterStart
@@ -943,19 +800,21 @@ fun BridgeRowTile(
             horizontalAlignment = Alignment.Start
         ) {
             Text(
-                text = label.bridgeLower(),
-                color = BRIDGE_TEXT,
+                text = label,
+                fontFamily = DmSansFontFamily,
+                color = BridgeColors.textPrimary,
                 fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.W500,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             if (!hint.isNullOrBlank()) {
                 Text(
                     text = hint,
-                    color = BRIDGE_MUTED,
+                    fontFamily = DmSansFontFamily,
+                    color = BridgeColors.textMuted,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Normal
+                    fontWeight = FontWeight.W400
                 )
             }
         }
@@ -973,7 +832,7 @@ fun FirstRunScreen(
         Spacer(modifier = Modifier.height(8.dp))
         Column(verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)) {
             BridgeRowTile(label = enableLabel, onClick = onEnable)
-            BridgeRowTile(label = "back", onClick = onBack)
+            BridgeRowTile(label = "Back", onClick = onBack)
         }
     }
 }
@@ -995,7 +854,7 @@ fun ToolMenuScreen(
                 BridgeRowTile(label = tool.title, onClick = { onOpenTool(tool) })
             }
             BridgeRowTile(label = manageLabel, onClick = onManage)
-            BridgeRowTile(label = "back", onClick = onBack)
+            BridgeRowTile(label = "Back", onClick = onBack)
         }
     }
 }
@@ -1012,12 +871,12 @@ fun TravelMenuScreen(
     BridgeScaffold(title = "Travel", statusText = statusText) {
         Spacer(modifier = Modifier.height(8.dp))
         Column(verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)) {
-            BridgeRowTile(label = "maps", onClick = onOpenMaps)
+            BridgeRowTile(label = "Maps", onClick = onOpenMaps)
             enabledTravel.forEach { tool ->
                 BridgeRowTile(label = tool.title, onClick = { onOpenTool(tool) })
             }
-            BridgeRowTile(label = "manage travel apps", onClick = onManage)
-            BridgeRowTile(label = "back", onClick = onBack)
+            BridgeRowTile(label = "Manage Travel Apps", onClick = onManage)
+            BridgeRowTile(label = "Back", onClick = onBack)
         }
     }
 }
@@ -1029,29 +888,32 @@ private fun BridgeToggleRow(
     checked: Boolean,
     onToggle: () -> Unit
 ) {
-    val shape = RoundedCornerShape(BRIDGE_TILE_CORNER)
+    val shape = RoundedCornerShape(16.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 64.dp)
             .clip(shape)
-            .background(BRIDGE_TILE)
+            .background(BridgeColors.tilePrimary)
+            .border(1.dp, BridgeColors.borderDefault, shape)
             .clickable { onToggle() }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = index.toString().padStart(2, '0'),
-            color = BRIDGE_MUTED,
+            fontFamily = DmSansFontFamily,
+            color = BridgeColors.textMuted,
             fontSize = 15.sp,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.W500
         )
         Spacer(modifier = Modifier.width(14.dp))
         Text(
-            text = label.bridgeLower(),
-            color = BRIDGE_TEXT,
+            text = label,
+            fontFamily = DmSansFontFamily,
+            color = BridgeColors.textPrimary,
             fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
+            fontWeight = FontWeight.W500,
             modifier = Modifier.weight(1f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -1060,9 +922,9 @@ private fun BridgeToggleRow(
             checked = checked,
             onCheckedChange = { onToggle() },
             colors = CheckboxDefaults.colors(
-                checkedColor = BRIDGE_TEXT,
-                uncheckedColor = BRIDGE_MUTED,
-                checkmarkColor = BRIDGE_BG
+                checkedColor = BridgeColors.textPrimary,
+                uncheckedColor = BridgeColors.textMuted,
+                checkmarkColor = BridgeColors.background
             )
         )
     }
@@ -1081,7 +943,8 @@ fun ToolConfigScreen(
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = note,
-            color = BRIDGE_MUTED,
+            fontFamily = DmSansFontFamily,
+            color = BridgeColors.textMuted,
             fontSize = 13.sp,
             modifier = Modifier.padding(bottom = 12.dp)
         )
@@ -1099,7 +962,7 @@ fun ToolConfigScreen(
                 )
             }
             Spacer(modifier = Modifier.height(8.dp))
-            BridgeRowTile(label = "back", onClick = onBack)
+            BridgeRowTile(label = "Back", onClick = onBack)
         }
     }
 }
@@ -1112,10 +975,8 @@ fun ToolConfigScreen(
 @Composable
 fun BridgeSettingsScreen(
     defaultApps: DefaultApps,
+    onDefaultAppsChanged: (DefaultApps) -> Unit,
     onBack: () -> Unit,
-    onPickMessages: () -> Unit,
-    onPickMusic: () -> Unit,
-    onPickMaps: () -> Unit,
 ) {
     val context = LocalContext.current
     val prefs = remember {
@@ -1137,7 +998,9 @@ fun BridgeSettingsScreen(
         )
     }
 
-    BridgeScaffold(title = "settings") {
+    var pickerSheet by remember { mutableStateOf<String?>(null) }
+
+    BridgeScaffold(title = "Settings") {
         Spacer(modifier = Modifier.height(8.dp))
 
         Row(
@@ -1146,16 +1009,18 @@ fun BridgeSettingsScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "brightness",
-                color = BRIDGE_TEXT,
+                text = "Brightness",
+                fontFamily = DmSansFontFamily,
+                color = BridgeColors.textPrimary,
                 fontSize = 15.sp,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.W500
             )
             Text(
                 text = "${brightness * 100 / 255}%",
-                color = BRIDGE_MUTED,
+                fontFamily = DmSansFontFamily,
+                color = BridgeColors.textMuted,
                 fontSize = 14.sp,
-                fontWeight = FontWeight.Normal
+                fontWeight = FontWeight.W400
             )
         }
 
@@ -1170,9 +1035,9 @@ fun BridgeSettingsScreen(
             },
             valueRange = 1f..255f,
             colors = SliderDefaults.colors(
-                thumbColor = BRIDGE_TEXT,
-                activeTrackColor = BRIDGE_MUTED,
-                inactiveTrackColor = BRIDGE_TILE
+                thumbColor = BridgeColors.textPrimary,
+                activeTrackColor = BridgeColors.textMuted,
+                inactiveTrackColor = BridgeColors.tilePrimary
             )
         )
 
@@ -1180,25 +1045,73 @@ fun BridgeSettingsScreen(
 
         Column(verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)) {
             BridgeRowTile(
-                label = "messages app",
-                hint = defaultApps.messagesPackage?.let { getAppLabel(context, it) } ?: "not set",
-                onClick = onPickMessages
+                label = "Messages App",
+                hint = defaultApps.messagesPackage?.let { getAppLabel(context, it) } ?: "Not Set",
+                onClick = { pickerSheet = "messages" }
             )
             BridgeRowTile(
-                label = "music app",
-                hint = defaultApps.musicPackage?.let { getAppLabel(context, it) } ?: "not set",
-                onClick = onPickMusic
+                label = "Music App",
+                hint = defaultApps.musicPackage?.let { getAppLabel(context, it) } ?: "Not Set",
+                onClick = { pickerSheet = "music" }
             )
             BridgeRowTile(
-                label = "maps app",
-                hint = defaultApps.mapsPackage?.let { getAppLabel(context, it) } ?: "not set",
-                onClick = onPickMaps
+                label = "Maps App",
+                hint = defaultApps.mapsPackage?.let { getAppLabel(context, it) } ?: "Not Set",
+                onClick = { pickerSheet = "maps" }
             )
         }
 
         Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
 
-        BridgeRowTile(label = "back", onClick = onBack)
+        BridgeRowTile(label = "Back", onClick = onBack)
+    }
+
+    pickerSheet?.let { role ->
+        val candidates = when (role) {
+            "messages" -> MESSAGES_CANDIDATES
+            "music" -> MUSIC_CANDIDATES
+            "maps" -> MAPS_CANDIDATES
+            else -> emptyList()
+        }
+        val currentPkg = when (role) {
+            "messages" -> defaultApps.messagesPackage
+            "music" -> defaultApps.musicPackage
+            "maps" -> defaultApps.mapsPackage
+            else -> null
+        }
+        val title = when (role) {
+            "messages" -> "Messages App"
+            "music" -> "Music App"
+            "maps" -> "Maps App"
+            else -> ""
+        }
+        val installed = remember(role) {
+            candidates.filter { isPackageInstalled(context, it) }
+        }
+
+        BridgeBottomSheet(title = title, onDismiss = { pickerSheet = null }) {
+            if (installed.isEmpty()) {
+                Text("No Compatible Apps Installed", fontFamily = DmSansFontFamily, color = BridgeColors.textMuted, fontSize = 13.sp)
+            } else {
+                installed.forEach { pkg ->
+                    BridgeSheetRow(
+                        label = getAppLabel(context, pkg),
+                        isSelected = pkg == currentPkg,
+                        onClick = {
+                            val newApps = when (role) {
+                                "messages" -> defaultApps.copy(messagesPackage = pkg)
+                                "music" -> defaultApps.copy(musicPackage = pkg)
+                                "maps" -> defaultApps.copy(mapsPackage = pkg)
+                                else -> defaultApps
+                            }
+                            saveDefaultApps(context, newApps)
+                            onDefaultAppsChanged(newApps)
+                            pickerSheet = null
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1233,41 +1146,6 @@ private fun applyBrightness(context: Context, value: Int) {
 }
 
 @Composable
-fun DefaultAppPickerScreen(
-    title: String,
-    candidates: List<String>,
-    currentPkg: String?,
-    onSelect: (String) -> Unit,
-    onBack: () -> Unit,
-) {
-    val context = LocalContext.current
-    val installed = remember {
-        candidates.filter { pkg -> isPackageInstalled(context, pkg) }
-    }
-
-    BridgeScaffold(title = title) {
-        Spacer(modifier = Modifier.height(8.dp))
-        if (installed.isEmpty()) {
-            Text("no compatible apps installed", color = BRIDGE_MUTED, fontSize = 13.sp)
-            Spacer(modifier = Modifier.weight(1f))
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)) {
-                installed.forEach { pkg ->
-                    val isCurrent = pkg == currentPkg
-                    BridgeRowTile(
-                        label = getAppLabel(context, pkg),
-                        hint = if (isCurrent) "(current)" else null,
-                        onClick = { onSelect(pkg) }
-                    )
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
-        BridgeRowTile(label = "back", onClick = onBack)
-    }
-}
-
-@Composable
 fun PlaceholderScreen(title: String, onBack: () -> Unit) {
     BridgeScaffold(title = title) {
         Spacer(modifier = Modifier.weight(1f))
@@ -1277,22 +1155,25 @@ fun PlaceholderScreen(title: String, onBack: () -> Unit) {
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = title.bridgeLower(),
-                color = BRIDGE_TEXT,
+                text = title,
+                fontFamily = DmSansFontFamily,
+                color = BridgeColors.textPrimary,
                 fontSize = 18.sp,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.W500
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "coming soon",
-                color = BRIDGE_MUTED,
+                text = "Coming Soon",
+                fontFamily = DmSansFontFamily,
+                color = BridgeColors.textMuted,
                 fontSize = 15.sp,
                 modifier = Modifier.clickable { onBack() }
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "tap to return",
-                color = BRIDGE_MUTED,
+                text = "Tap To Return",
+                fontFamily = DmSansFontFamily,
+                color = BridgeColors.textMuted,
                 fontSize = 13.sp
             )
         }
@@ -1312,12 +1193,13 @@ fun QRScannerScreen(onBack: () -> Unit) {
         BridgeScaffold(title = "QR") {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "camera permission not available",
-                color = BRIDGE_MUTED,
+                text = "Camera Permission Not Available",
+                fontFamily = DmSansFontFamily,
+                color = BridgeColors.textMuted,
                 fontSize = 13.sp
             )
             Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
-            BridgeRowTile(label = "back", onClick = onBack)
+            BridgeRowTile(label = "Back", onClick = onBack)
         }
         return
     }
@@ -1332,8 +1214,9 @@ fun QRScannerScreen(onBack: () -> Unit) {
         BridgeScaffold(title = "QR") {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "point camera at a qr code",
-                color = BRIDGE_MUTED,
+                text = "Point Camera at a QR Code",
+                fontFamily = DmSansFontFamily,
+                color = BridgeColors.textMuted,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
@@ -1341,12 +1224,12 @@ fun QRScannerScreen(onBack: () -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .clip(RoundedCornerShape(BRIDGE_TILE_CORNER))
+                    .clip(RoundedCornerShape(16.dp))
             ) {
                 QRCameraPreview(onBarcodeDetected = { value -> scannedValue = value })
             }
             Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
-            BridgeRowTile(label = "back", onClick = onBack)
+            BridgeRowTile(label = "Back", onClick = onBack)
         }
     }
 }
@@ -1435,14 +1318,15 @@ private fun QRResultScreen(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(BRIDGE_TILE_CORNER))
-                .background(BRIDGE_TILE)
+                .clip(RoundedCornerShape(16.dp))
+                .background(BridgeColors.tilePrimary)
                 .padding(16.dp)
         ) {
             Column {
                 Text(
                     text = value,
-                    color = BRIDGE_TEXT,
+                    fontFamily = DmSansFontFamily,
+                    color = BridgeColors.textPrimary,
                     fontSize = 14.sp,
                     maxLines = 10,
                     overflow = TextOverflow.Ellipsis
@@ -1450,9 +1334,10 @@ private fun QRResultScreen(
                 if (isUrl) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "url detected",
-                        color = BRIDGE_MUTED,
-                        fontSize = 12.sp
+                    text = "URL Detected",
+                    fontFamily = DmSansFontFamily,
+                    color = BridgeColors.textMuted,
+                    fontSize = 12.sp
                     )
                 }
             }
@@ -1460,8 +1345,8 @@ private fun QRResultScreen(
 
         Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
 
-        BridgeRowTile(label = "scan again", onClick = onScanAgain)
-        BridgeRowTile(label = "back", onClick = onBack)
+        BridgeRowTile(label = "Scan Again", onClick = onScanAgain)
+        BridgeRowTile(label = "Back", onClick = onBack)
     }
 }
 
@@ -1585,16 +1470,17 @@ private fun formatFileSize(bytes: Long): String {
 }
 
 @Composable
-fun LibraryScreen(
-    onNavigatePhotos: () -> Unit,
-    onNavigateVideos: () -> Unit,
-    onNavigateDocuments: () -> Unit,
-    onBack: () -> Unit
-) {
+fun LibraryScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     var photoCount by remember { mutableStateOf<Int?>(null) }
     var videoCount by remember { mutableStateOf<Int?>(null) }
     var documentCount by remember { mutableStateOf<Int?>(null) }
+
+    var activeSheet by remember { mutableStateOf<String?>(null) }
+    var photos by remember { mutableStateOf<List<Uri>?>(null) }
+    var videos by remember { mutableStateOf<List<Uri>?>(null) }
+    var documents by remember { mutableStateOf<List<DocumentItem>?>(null) }
+    var selectedPhoto by remember { mutableStateOf<Uri?>(null) }
 
     LaunchedEffect(Unit) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -1604,38 +1490,15 @@ fun LibraryScreen(
         }
     }
 
-    BridgeScaffold(title = "library") {
-        Spacer(modifier = Modifier.height(8.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)) {
-            BridgeRowTile(
-                label = "photos",
-                hint = photoCount?.let { "$it photos" },
-                onClick = onNavigatePhotos
-            )
-            BridgeRowTile(
-                label = "videos",
-                hint = videoCount?.let { "$it videos" },
-                onClick = onNavigateVideos
-            )
-            BridgeRowTile(
-                label = "documents",
-                hint = documentCount?.let { "$it documents" },
-                onClick = onNavigateDocuments
-            )
-            BridgeRowTile(label = "back", onClick = onBack)
-        }
-    }
-}
-
-@Composable
-fun LibraryPhotosScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    var photos by remember { mutableStateOf<List<Uri>?>(null) }
-    var selectedPhoto by remember { mutableStateOf<Uri?>(null) }
-
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            photos = queryImageUris(context)
+    LaunchedEffect(activeSheet) {
+        if (activeSheet != null) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                when (activeSheet) {
+                    "photos" -> if (photos == null) photos = queryImageUris(context)
+                    "videos" -> if (videos == null) videos = queryVideoUris(context)
+                    "documents" -> if (documents == null) documents = queryDocuments(context)
+                }
+            }
         }
     }
 
@@ -1646,52 +1509,161 @@ fun LibraryPhotosScreen(onBack: () -> Unit) {
             onBack = { selectedPhoto = null }
         )
     } else {
-        BridgeScaffold(title = "photos") {
+        BridgeScaffold(title = "Library") {
             Spacer(modifier = Modifier.height(8.dp))
-            when {
-                photos == null -> {
-                    Text("loading...", color = BRIDGE_MUTED, fontSize = 13.sp)
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-                photos!!.isEmpty() -> {
-                    Text("nothing here yet", color = BRIDGE_MUTED, fontSize = 13.sp)
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-                else -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(BridgeColors.tilePrimary)
-                    ) {
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(3),
-                            modifier = Modifier.fillMaxSize()
+            Column(verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)) {
+                BridgeRowTile(
+                    label = "Photos",
+                    hint = photoCount?.let { "$it Photos" },
+                    onClick = { activeSheet = "photos" }
+                )
+                BridgeRowTile(
+                    label = "Videos",
+                    hint = videoCount?.let { "$it Videos" },
+                    onClick = { activeSheet = "videos" }
+                )
+                BridgeRowTile(
+                    label = "Documents",
+                    hint = documentCount?.let { "$it Documents" },
+                    onClick = { activeSheet = "documents" }
+                )
+                BridgeRowTile(label = "Back", onClick = onBack)
+            }
+        }
+
+        if (activeSheet == "photos") {
+            BridgeBottomSheet(title = "Photos", onDismiss = { activeSheet = null }) {
+                when {
+                    photos == null -> Text("Loading...", fontFamily = DmSansFontFamily, color = BridgeColors.textMuted, fontSize = 13.sp)
+                    photos!!.isEmpty() -> Text("Nothing Here Yet", fontFamily = DmSansFontFamily, color = BridgeColors.textMuted, fontSize = 13.sp)
+                    else -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 400.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(BridgeColors.tilePrimary)
                         ) {
-                            items(photos!!) { uri ->
-                                AsyncImage(
-                                    model = uri,
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .aspectRatio(1f)
-                                        .clickable { selectedPhoto = uri },
-                                    contentScale = ContentScale.Crop
-                                )
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(3),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(photos!!) { uri ->
+                                    AsyncImage(
+                                        model = uri,
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .aspectRatio(1f)
+                                            .clickable {
+                                                selectedPhoto = uri
+                                                activeSheet = null
+                                            },
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
-            BridgeRowTile(label = "back", onClick = onBack)
+        }
+
+        if (activeSheet == "videos") {
+            BridgeBottomSheet(title = "Videos", onDismiss = { activeSheet = null }) {
+                when {
+                    videos == null -> Text("Loading...", fontFamily = DmSansFontFamily, color = BridgeColors.textMuted, fontSize = 13.sp)
+                    videos!!.isEmpty() -> Text("Nothing Here Yet", fontFamily = DmSansFontFamily, color = BridgeColors.textMuted, fontSize = 13.sp)
+                    else -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 400.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(BridgeColors.tilePrimary)
+                        ) {
+                            // TODO: The system video player package must be added to
+                            // LAUNCHED_PACKAGES in MyDeviceAdminReceiver and included
+                            // in setLockTaskPackages for playback to work in kiosk mode.
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(3),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(videos!!) { uri ->
+                                    Box(
+                                        modifier = Modifier
+                                            .aspectRatio(1f)
+                                            .clickable {
+                                                activeSheet = null
+                                                try {
+                                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                        setDataAndType(uri, "video/*")
+                                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                    }
+                                                    context.startActivity(intent)
+                                                } catch (e: Exception) {
+                                                    Log.w("BridgeApp", "Failed to launch video: $e")
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        AsyncImage(
+                                            model = uri,
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(RoundedCornerShape(18.dp))
+                                                .background(ComposeColor.Black.copy(alpha = 0.5f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text("▶", fontFamily = DmSansFontFamily, color = ComposeColor.White, fontSize = 16.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (activeSheet == "documents") {
+            BridgeBottomSheet(title = "Documents", onDismiss = { activeSheet = null }) {
+                when {
+                    documents == null -> Text("Loading...", fontFamily = DmSansFontFamily, color = BridgeColors.textMuted, fontSize = 13.sp)
+                    documents!!.isEmpty() -> Text("Nothing Here Yet", fontFamily = DmSansFontFamily, color = BridgeColors.textMuted, fontSize = 13.sp)
+                    else -> {
+                        documents!!.forEach { doc ->
+                            BridgeSheetRow(
+                                label = doc.name,
+                                sublabel = formatFileSize(doc.size),
+                                onClick = {
+                                    activeSheet = null
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                                            setDataAndType(doc.uri, doc.mimeType)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        Log.w("BridgeApp", "Failed to open document: $e")
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun LibraryImageDetailScreen(imageUri: Uri, onBack: () -> Unit) {
-    BridgeScaffold(title = "photo") {
+    BridgeScaffold(title = "Photo") {
         Spacer(modifier = Modifier.height(8.dp))
         Box(
             modifier = Modifier
@@ -1709,145 +1681,6 @@ private fun LibraryImageDetailScreen(imageUri: Uri, onBack: () -> Unit) {
             )
         }
         Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
-        BridgeRowTile(label = "back", onClick = onBack)
-    }
-}
-
-@Composable
-fun LibraryVideosScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    var videos by remember { mutableStateOf<List<Uri>?>(null) }
-
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            videos = queryVideoUris(context)
-        }
-    }
-
-    BridgeScaffold(title = "videos") {
-        Spacer(modifier = Modifier.height(8.dp))
-        when {
-            videos == null -> {
-                Text("loading...", color = BRIDGE_MUTED, fontSize = 13.sp)
-                Spacer(modifier = Modifier.weight(1f))
-            }
-            videos!!.isEmpty() -> {
-                Text("nothing here yet", color = BRIDGE_MUTED, fontSize = 13.sp)
-                Spacer(modifier = Modifier.weight(1f))
-            }
-            else -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(BridgeColors.tilePrimary)
-                ) {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(videos!!) { uri ->
-                            // TODO: The system video player package must be added to
-                            // LAUNCHED_PACKAGES in MyDeviceAdminReceiver and included
-                            // in setLockTaskPackages for playback to work in kiosk mode.
-                            Box(
-                                modifier = Modifier
-                                    .aspectRatio(1f)
-                                    .clickable {
-                                        try {
-                                            val intent = Intent(Intent.ACTION_VIEW).apply {
-                                                setDataAndType(uri, "video/*")
-                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                            }
-                                            context.startActivity(intent)
-                                        } catch (e: Exception) {
-                                            Log.w("BridgeApp", "Failed to launch video: $e")
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                AsyncImage(
-                                    model = uri,
-                                    contentDescription = null,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(RoundedCornerShape(18.dp))
-                                        .background(ComposeColor.Black.copy(alpha = 0.5f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "▶",
-                                        color = ComposeColor.White,
-                                        fontSize = 16.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
-        BridgeRowTile(label = "back", onClick = onBack)
-    }
-}
-
-@Composable
-fun LibraryDocumentsScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    var documents by remember { mutableStateOf<List<DocumentItem>?>(null) }
-
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            documents = queryDocuments(context)
-        }
-    }
-
-    BridgeScaffold(title = "documents") {
-        Spacer(modifier = Modifier.height(8.dp))
-        when {
-            documents == null -> {
-                Text("loading...", color = BRIDGE_MUTED, fontSize = 13.sp)
-                Spacer(modifier = Modifier.weight(1f))
-            }
-            documents!!.isEmpty() -> {
-                Text("nothing here yet", color = BRIDGE_MUTED, fontSize = 13.sp)
-                Spacer(modifier = Modifier.weight(1f))
-            }
-            else -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(BRIDGE_TILE_SPACING)
-                ) {
-                    documents!!.forEach { doc ->
-                        BridgeRowTile(
-                            label = doc.name,
-                            hint = formatFileSize(doc.size),
-                            onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                                        setDataAndType(doc.uri, doc.mimeType)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    Log.w("BridgeApp", "Failed to open document: $e")
-                                }
-                            }
-                        )
-                    }
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(BRIDGE_TILE_SPACING))
-        BridgeRowTile(label = "back", onClick = onBack)
+        BridgeRowTile(label = "Back", onClick = onBack)
     }
 }
