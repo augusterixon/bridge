@@ -6,7 +6,7 @@ echo "Waiting for device..."
 adb wait-for-device
 
 echo "Installing Bridge..."
-adb install -r ~/dev/bridge/app/release/app-arm64-v8a-release.apk
+adb install -r ~/dev/bridge/app/build/outputs/apk/release/app-arm64-v8a-release.apk
 
 echo "Setting Device Owner..."
 adb shell dpm set-device-owner com.bridge.device/.MyDeviceAdminReceiver
